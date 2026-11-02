@@ -46,6 +46,12 @@ export const GECKO_SHORTCUT_SECTIONS: ShortcutSection[] = [
                 description: "Abre o seletor de matiz e paleta visual",
             },
             {
+                id: "zen-mode",
+                label: "Modo Foco / Zen",
+                keys: ["F11", "Alt + Z"],
+                description: "Oculta todas as molduras para foco total na escrita (Escape sai)",
+            },
+            {
                 id: "escape-action",
                 label: "Cancelar / Fechar modal ou menu",
                 keys: ["Esc"],

@@ -4655,6 +4655,12 @@ function openGeckoBrandMenu(anchorEl: HTMLElement, focusFirstItem = false): void
                 },
             },
             {
+                label: "Modo Foco / Zen (F11)",
+                action: () => {
+                    toggleZenMode();
+                },
+            },
+            {
                 label: "Configuração de Cores (Ctrl+,)",
                 action: () => {
                     openPrimaryColorModal();
@@ -5037,6 +5043,46 @@ function bindSidebarResizer(): void {
 
 function toggleSidebar(): void {
     workbenchEl.classList.toggle("sidebar-collapsed");
+}
+
+// Modo Foco / Zen
+let isZenMode = false;
+let preZenSidebarCollapsed = false;
+
+function toggleZenMode(): void {
+    if (isZenMode) {
+        exitZenMode();
+    } else {
+        enterZenMode();
+    }
+}
+
+function enterZenMode(): void {
+    if (isZenMode) return;
+    isZenMode = true;
+    preZenSidebarCollapsed = workbenchEl.classList.contains("sidebar-collapsed");
+    workbenchEl.classList.add("zen-mode");
+    if (editorView && activeTabPath) {
+        editorView.requestMeasure();
+        editorView.focus();
+    }
+    showTemporaryStatus("Modo Zen ativado (Pressione Escape ou F11 para sair)");
+}
+
+function exitZenMode(): void {
+    if (!isZenMode) return;
+    isZenMode = false;
+    workbenchEl.classList.remove("zen-mode");
+    if (preZenSidebarCollapsed) {
+        workbenchEl.classList.add("sidebar-collapsed");
+    } else {
+        workbenchEl.classList.remove("sidebar-collapsed");
+    }
+    if (editorView && activeTabPath) {
+        editorView.requestMeasure();
+        editorView.focus();
+    }
+    showTemporaryStatus("Modo Zen desativado");
 }
 
 // Toggle Line Ending (LF <-> CRLF)
@@ -6352,11 +6398,38 @@ function bindEvents(): void {
             },
         },
         {
-            key: "Escape",
-            description: "Fechar avisos de conflito",
-            preventDefault: false,
+            key: "F11",
+            description: "Alternar Modo Foco / Zen",
             run: () => {
+                toggleZenMode();
+            },
+        },
+        {
+            key: "Alt-z",
+            description: "Alternar Modo Foco / Zen",
+            run: () => {
+                toggleZenMode();
+            },
+        },
+        {
+            key: "Mod-Alt-z",
+            description: "Alternar Modo Foco / Zen",
+            run: () => {
+                toggleZenMode();
+            },
+        },
+        {
+            key: "Escape",
+            description: "Sair do Modo Zen / Fechar avisos de conflito",
+            preventDefault: false,
+            run: (e) => {
                 hideConflictModal();
+                if (isZenMode) {
+                    exitZenMode();
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return true;
+                }
                 return false;
             },
         },

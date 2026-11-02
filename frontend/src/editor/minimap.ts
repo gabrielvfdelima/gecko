@@ -87,6 +87,8 @@ export const geckoMinimapPlugin = ViewPlugin.fromClass(
     }
 
     render(): void {
+      if (this.container.offsetParent === null) return;
+
       const H = this.container.clientHeight || this.view.dom.clientHeight || 400;
       if (H <= 0) return;
 
