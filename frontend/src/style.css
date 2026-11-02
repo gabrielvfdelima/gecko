@@ -968,6 +968,10 @@ button.shortcut-row.action-row:focus-visible kbd {
   cursor: pointer;
 }
 
+#status-stats {
+  font-variant-numeric: tabular-nums;
+}
+
 .status-btn:hover {
   color: var(--text-primary);
   border-color: var(--border-subtle);

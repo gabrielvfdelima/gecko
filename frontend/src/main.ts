@@ -47,6 +47,12 @@ import {
     toggleTaskListCommand,
 } from "./editor/shortcuts";
 import {
+    computeSelectionStats,
+    computeTextStats,
+    formatWritingStats,
+    TextStats,
+} from "./editor/textStats";
+import {
     attachTabPointerDrag,
     attachTreePointerDrag,
     TabDropPosition,
@@ -98,6 +104,7 @@ interface GeckoSettings {
     manualOrder?: Record<string, Record<string, string[]>>;
     sidebarWidth?: number;
     accentColor?: string;
+    statsIncludeSpaces?: boolean;
 }
 
 // Sidebar resize limits (px)
@@ -114,6 +121,7 @@ interface OpenTab {
     state: EditorState;
     scrollTop: number;
     scrollLeft: number;
+    docStatsCache?: TextStats;
 }
 
 interface FlatFileItem {
@@ -142,6 +150,7 @@ interface InlineTreeInputState {
 const STORAGE_LAST_WORKSPACE_FALLBACK = "gecko:lastWorkspaceRoot";
 const STORAGE_WORKSPACES_FALLBACK = "gecko:workspacesList";
 const STORAGE_ACCENT_COLOR_FALLBACK = "gecko:accentColor";
+const STORAGE_STATS_SPACES_FALLBACK = "gecko:statsIncludeSpaces";
 
 // Application State
 let appSettings: GeckoSettings = {
@@ -150,6 +159,7 @@ let appSettings: GeckoSettings = {
     sort: { mode: "name", dir: "asc" },
     manualOrder: {},
     accentColor: DEFAULT_GECKO_BRAND_COLOR,
+    statsIncludeSpaces: true,
 };
 
 let workspaces: WorkspaceEntry[] = [];
@@ -200,6 +210,9 @@ const statusMessageEl = document.getElementById(
 const statusCursorsEl = document.getElementById(
     "status-cursors",
 ) as HTMLElement;
+const statusStatsBtn = document.getElementById(
+    "status-stats",
+) as HTMLButtonElement;
 const statusPositionEl = document.getElementById(
     "status-position",
 ) as HTMLElement;
@@ -400,6 +413,11 @@ async function loadAppSettings(): Promise<void> {
             ) ||
             DEFAULT_GECKO_BRAND_COLOR;
 
+        const savedStatsSpaces =
+            typeof parsed.statsIncludeSpaces === "boolean"
+                ? parsed.statsIncludeSpaces
+                : localStorage.getItem(STORAGE_STATS_SPACES_FALLBACK) !== "false";
+
         appSettings = {
             workspaces: dedupedRoots,
             recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
@@ -414,6 +432,7 @@ async function loadAppSettings(): Promise<void> {
                     ? parsed.sidebarWidth
                     : undefined,
             accentColor: savedAccent,
+            statsIncludeSpaces: savedStatsSpaces,
         };
     } catch {
         const fallbackRoots = getFallbackWorkspacesFromLocalStorage();
@@ -426,6 +445,8 @@ async function loadAppSettings(): Promise<void> {
         } catch {
             // Ignore
         }
+        const fallbackStatsSpaces =
+            localStorage.getItem(STORAGE_STATS_SPACES_FALLBACK) !== "false";
         appSettings = {
             workspaces: fallbackRoots,
             recentWorkspaces: [],
@@ -434,6 +455,7 @@ async function loadAppSettings(): Promise<void> {
             sort: { mode: "name", dir: "asc" },
             manualOrder: {},
             accentColor: fallbackAccent,
+            statsIncludeSpaces: fallbackStatsSpaces,
         };
     }
 }
@@ -469,6 +491,10 @@ async function persistAppSettings(): Promise<void> {
                 appSettings.accentColor,
             );
         }
+        localStorage.setItem(
+            STORAGE_STATS_SPACES_FALLBACK,
+            String(appSettings.statsIncludeSpaces ?? true),
+        );
     } catch {
         // Ignore storage write errors
     }
@@ -505,6 +531,10 @@ function buildEditorStateForTab(
             if (editorView && activeTabPath === tab.path) {
                 tab.state = editorView.state;
             }
+            tab.docStatsCache = computeTextStats(newContent);
+            if (activeTabPath === tab.path) {
+                updateWritingStats(editorView?.state);
+            }
             const nextDirty = tab.path.startsWith("untitled:")
                 ? true
                 : newContent !== tab.savedContent;
@@ -535,14 +565,68 @@ function ensureEditorView(initialState: EditorState): EditorView {
     return editorView;
 }
 
-// Status Bar Updates
+// Status Bar Updates & Writing Statistics
+function updateWritingStats(state?: EditorState): void {
+    const activeTab = openTabs.find((t) => t.path === activeTabPath);
+    if (!activeTab) {
+        statusStatsBtn.classList.add("hidden");
+        return;
+    }
+
+    statusStatsBtn.classList.remove("hidden");
+
+    const currentState =
+        state ||
+        (editorView && activeTabPath === activeTab.path
+            ? editorView.state
+            : activeTab.state);
+
+    if (!activeTab.docStatsCache) {
+        activeTab.docStatsCache = computeTextStats(currentState.doc.toString());
+    }
+
+    let selStats: TextStats | null = null;
+    let hasSelection = false;
+    for (const r of currentState.selection.ranges) {
+        if (!r.empty) {
+            hasSelection = true;
+            break;
+        }
+    }
+
+    if (hasSelection) {
+        const slices: string[] = [];
+        for (const r of currentState.selection.ranges) {
+            if (!r.empty) {
+                slices.push(currentState.sliceDoc(r.from, r.to));
+            }
+        }
+        selStats = computeSelectionStats(slices);
+    }
+
+    const includeSpaces = appSettings.statsIncludeSpaces ?? true;
+    const formatted = formatWritingStats(
+        activeTab.docStatsCache,
+        selStats,
+        includeSpaces,
+    );
+
+    statusStatsBtn.textContent = formatted.label;
+    statusStatsBtn.title = formatted.tooltip;
+}
+
+function toggleWritingStatsMode(): void {
+    appSettings.statsIncludeSpaces = !(appSettings.statsIncludeSpaces ?? true);
+    void persistAppSettings();
+    updateWritingStats();
+}
+
 function updateStatusBarCursorInfo(info: CursorStatusInfo): void {
     const cursorLabel =
         info.cursorCount === 1 ? "1 cursor" : `${info.cursorCount} cursores`;
-    const selSuffix =
-        info.selectedChars > 0 ? ` (${info.selectedChars} sel)` : "";
-    statusCursorsEl.textContent = `${cursorLabel}${selSuffix}`;
+    statusCursorsEl.textContent = cursorLabel;
     statusPositionEl.textContent = `Ln ${info.line}, Col ${info.col}`;
+    updateWritingStats();
 }
 
 function updateStatusBar(): void {
@@ -556,6 +640,7 @@ function updateStatusBar(): void {
         statusCursorsEl.textContent = "1 cursor";
         statusPositionEl.textContent = "Ln 1, Col 1";
         statusEncodingBtn.textContent = "LF";
+        statusStatsBtn.classList.add("hidden");
         return;
     }
 
@@ -573,6 +658,7 @@ function updateStatusBar(): void {
             ? editorView.state
             : activeTab.state;
     updateStatusBarCursorInfo(extractCursorStatus(state));
+    updateWritingStats(state);
 }
 
 // Multi-Workspace Operations
@@ -2157,6 +2243,7 @@ async function openFileInTab(
             state,
             scrollTop: 0,
             scrollLeft: 0,
+            docStatsCache: computeTextStats(doc.content),
         };
 
         openTabs.push(newTab);
@@ -2340,6 +2427,7 @@ function createNewUntitledTab(): void {
         state,
         scrollTop: 0,
         scrollLeft: 0,
+        docStatsCache: computeTextStats(""),
     };
     openTabs.push(newTab);
     activateTab(newTab.path, true);
@@ -5483,6 +5571,10 @@ function bindEvents(): void {
         toggleSidebar();
     });
 
+    statusStatsBtn.addEventListener("click", () => {
+        toggleWritingStatsMode();
+    });
+
     statusEncodingBtn.addEventListener("click", () => {
         toggleActiveLineEnding();
     });
@@ -5905,7 +5997,11 @@ function bindEvents(): void {
         getRoot: () => statusEncodingBtn.closest("footer"),
         isAvailable: () => Boolean(activeTabPath),
         focus: () => {
-            statusEncodingBtn.focus();
+            if (!statusStatsBtn.classList.contains("hidden")) {
+                statusStatsBtn.focus();
+            } else {
+                statusEncodingBtn.focus();
+            }
         },
     });
 
