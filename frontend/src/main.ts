@@ -4021,8 +4021,10 @@ function showContextMenu(
     y: number,
     options: ContextMenuOption[],
     originEl?: HTMLElement | null,
+    focusFirstItem = false,
 ): void {
     contextMenuEl.innerHTML = "";
+    contextMenuEl.tabIndex = -1;
     const itemButtons: HTMLButtonElement[] = [];
 
     for (const opt of options) {
@@ -4056,6 +4058,19 @@ function showContextMenu(
             closeContextMenu(true);
             if (opt.action) opt.action();
         });
+
+        // Hover do mouse sincroniza o item ativo dinamicamente sem travar seleção
+        btn.addEventListener("mouseenter", () => {
+            const btnIdx = itemButtons.indexOf(btn);
+            if (btnIdx !== -1) {
+                menuNav.setIndex(btnIdx, {
+                    focus: false,
+                    notify: false,
+                    scroll: false,
+                });
+            }
+        });
+
         contextMenuEl.appendChild(btn);
         itemButtons.push(btn);
     }
@@ -4080,22 +4095,25 @@ function showContextMenu(
         },
     });
 
-    const initialIdx = Math.max(
-        0,
-        options.filter((o) => !o.separator).findIndex((o) => o.active),
-    );
-    menuNav.setIndex(initialIdx, {
-        focus: false,
-        notify: false,
-        scroll: false,
-    });
+    // Ao retirar o ponteiro do menu, desmarca qualquer item selecionado
+    contextMenuEl.onmouseleave = () => {
+        menuNav.clearSelection();
+    };
+
+    if (focusFirstItem) {
+        menuNav.first(true);
+    } else {
+        menuNav.clearSelection();
+    }
 
     activeContextMenuLayer = pushLayer({
         id: "context-menu",
         element: contextMenuEl,
         kind: "popup",
         initialFocus: () =>
-            itemButtons[menuNav.getIndex()] || itemButtons[0] || contextMenuEl,
+            focusFirstItem
+                ? itemButtons[menuNav.getIndex()] || itemButtons[0] || contextMenuEl
+                : contextMenuEl,
         restoreFocusTo:
             originEl ?? (document.activeElement as HTMLElement | null),
         onEscape: () => {
@@ -4531,7 +4549,7 @@ function openPrimaryColorModal(): void {
     });
 }
 
-function openGeckoBrandMenu(anchorEl: HTMLElement): void {
+function openGeckoBrandMenu(anchorEl: HTMLElement, focusFirstItem = false): void {
     if (!contextMenuEl.classList.contains("hidden")) {
         closeContextMenu(true);
         return;
@@ -4556,6 +4574,7 @@ function openGeckoBrandMenu(anchorEl: HTMLElement): void {
             },
         ],
         anchorEl,
+        focusFirstItem,
     );
 }
 
@@ -5295,14 +5314,14 @@ function handleSidebarKeyDown(e: KeyboardEvent): void {
 function bindEvents(): void {
     btnGeckoBrand.addEventListener("click", (e) => {
         e.stopPropagation();
-        openGeckoBrandMenu(btnGeckoBrand);
+        openGeckoBrandMenu(btnGeckoBrand, false);
     });
 
     btnGeckoBrand.addEventListener("keydown", (e) => {
         if (e.key === "ArrowDown") {
             e.preventDefault();
             e.stopPropagation();
-            openGeckoBrandMenu(btnGeckoBrand);
+            openGeckoBrandMenu(btnGeckoBrand, true);
         }
     });
 

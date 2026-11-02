@@ -43,6 +43,7 @@ export interface ListNavigatorOptions {
 export interface ListNavigator {
     getIndex: () => number;
     setIndex: (index: number, options?: { focus?: boolean; notify?: boolean; scroll?: boolean }) => void;
+    clearSelection: () => void;
     move: (delta: number, viaKeyboard?: boolean) => void;
     first: (viaKeyboard?: boolean) => void;
     last: (viaKeyboard?: boolean) => void;
@@ -141,13 +142,37 @@ export function createListNavigator(
         }
     };
 
+    const clearSelection = () => {
+        activeIndex = -1;
+        const items = opts.getItems();
+        items.forEach((el) => {
+            if (selectedClass) {
+                el.classList.remove(selectedClass);
+            }
+            if (mode === "roving") {
+                el.tabIndex = -1;
+            }
+            if (
+                el.getAttribute("role") === "option" ||
+                el.getAttribute("role") === "tab" ||
+                el.getAttribute("role") === "treeitem"
+            ) {
+                el.setAttribute("aria-selected", "false");
+            }
+        });
+    };
+
     const setIndex = (
         index: number,
         options?: { focus?: boolean; notify?: boolean; scroll?: boolean },
     ) => {
         const items = opts.getItems();
         if (items.length === 0) {
-            activeIndex = 0;
+            activeIndex = -1;
+            return;
+        }
+        if (index < 0) {
+            clearSelection();
             return;
         }
         const clamped = Math.max(0, Math.min(items.length - 1, index));
@@ -165,6 +190,17 @@ export function createListNavigator(
         const step: 1 | -1 = delta >= 0 ? 1 : -1;
         const stepsCount = Math.abs(delta);
         let nextIdx = activeIndex;
+
+        if (nextIdx === -1) {
+            const startCandidate = step === 1 ? 0 : items.length - 1;
+            const found = findValidIndex(items, startCandidate, step);
+            if (found >= 0) {
+                activeIndex = found;
+                applyVisualAndFocus(items, activeIndex, { viaKeyboard });
+                return;
+            }
+            nextIdx = 0;
+        }
 
         for (let s = 0; s < stepsCount; s++) {
             const candidate = nextIdx + step;
@@ -224,7 +260,7 @@ export function createListNavigator(
 
     const activateCurrent = (e: KeyboardEvent): boolean => {
         const items = opts.getItems();
-        if (items.length === 0) return false;
+        if (items.length === 0 || activeIndex < 0) return false;
         const currentEl = items[activeIndex];
         if (!currentEl || !isEnabled(items, activeIndex)) return false;
         if (opts.onActivate) {
@@ -356,6 +392,7 @@ export function createListNavigator(
     return {
         getIndex: () => activeIndex,
         setIndex,
+        clearSelection,
         move,
         first,
         last,

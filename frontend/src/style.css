@@ -1066,6 +1066,12 @@ button.shortcut-row.action-row:focus-visible kbd {
   border-radius: 0px;
   padding: 4px 0;
   z-index: 200;
+  outline: none;
+}
+
+.context-menu:focus,
+.context-menu:focus-visible {
+  outline: none;
 }
 
 .context-menu-item {
