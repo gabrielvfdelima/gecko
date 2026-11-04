@@ -13,7 +13,65 @@ Editor de texto e Markdown para desktop com foco em velocidade, baixo consumo de
 - **Personalização sóbria:** seletor de cor de destaque (`Ctrl + ,`) e paleta de alto contraste.
 - **Acessibilidade de teclado:** navegação completa por atalhos, com catálogo integrado (`F1`).
 
-## Pré-requisitos
+## Instalação
+
+### Baixar Binários Pré-compilados (Releases)
+
+Você pode obter os executáveis prontos para uso diretamente na página de [Releases](https://github.com/gabrielvfdelima/gecko/releases).
+
+#### Windows
+Baixe o arquivo `gecko-windows-amd64.exe` e execute diretamente.
+
+#### Linux
+
+1. **Dependências em tempo de execução:**
+   A maioria dos ambientes desktop padrão (GNOME, etc.) já inclui essas bibliotecas. Em instalações mínimas ou gerenciadores de janelas leves (ex: i3, Sway), instale o GTK 3 e o WebKit2GTK 4.1 de acordo com a sua distribuição:
+
+   - **Debian / Ubuntu / Linux Mint / Pop!_OS:**
+     ```bash
+     sudo apt update && sudo apt install -y libgtk-3-0 libwebkit2gtk-4.1-0
+     ```
+   - **Fedora / RHEL / CentOS Stream:**
+     ```bash
+     sudo dnf install -y gtk3 webkit2gtk4.1
+     ```
+   - **Arch Linux / Manjaro:**
+     ```bash
+     sudo pacman -S --needed gtk3 webkit2gtk-4.1
+     ```
+   - **openSUSE (Tumbleweed / Leap):**
+     ```bash
+     sudo zypper install -y libgtk-3-0 libwebkit2gtk-4_1-0
+     ```
+
+2. **Executar ou Instalar o Binário:**
+   ```bash
+   # Dê permissão de execução ao binário baixado:
+   chmod +x gecko-linux-amd64
+
+   # Para rodar diretamente:
+   ./gecko-linux-amd64
+
+   # (Opcional) Instalar globalmente no sistema:
+   sudo mv gecko-linux-amd64 /usr/local/bin/gecko
+   ```
+
+3. **(Opcional) Criar atalho no lançador de aplicativos (`.desktop`):**
+   ```bash
+   mkdir -p ~/.local/share/applications
+   cat << 'EOF' > ~/.local/share/applications/gecko.desktop
+   [Desktop Entry]
+   Name=Gecko
+   Comment=Editor de texto e Markdown utilitário
+   Exec=gecko
+   Icon=text-editor
+   Terminal=false
+   Type=Application
+   Categories=Utility;TextEditor;Development;
+   EOF
+   ```
+
+## Pré-requisitos (Compilação Local)
 
 - Go 1.22 ou superior
 - Node.js 18 ou superior e npm
@@ -22,7 +80,7 @@ Editor de texto e Markdown para desktop com foco em velocidade, baixo consumo de
   go install github.com/wailsapp/wails/v2/cmd/wails@latest
   ```
 
-### Dependências de sistema no Linux
+### Dependências de sistema no Linux (Desenvolvimento)
 
 - **Debian / Ubuntu:**
   ```bash
@@ -36,6 +94,10 @@ Editor de texto e Markdown para desktop com foco em velocidade, baixo consumo de
   ```bash
   sudo pacman -S base-devel pkgconf gtk3 webkit2gtk-4.1
   ```
+- **openSUSE:**
+  ```bash
+  sudo zypper install patterns-devel-base-devel_basis pkg-config gtk3-devel webkit2gtk-4_1-devel
+  ```
 
 ## Desenvolvimento
 
@@ -43,6 +105,11 @@ Para instalar as dependências do frontend e iniciar a aplicação em modo de de
 
 ```bash
 cd frontend && npm install && cd ..
+
+# No Linux (com WebKit2GTK 4.1):
+wails dev -tags webkit2_41
+
+# No Windows:
 wails dev
 ```
 
@@ -51,11 +118,14 @@ wails dev
 Para gerar o binário de produção:
 
 ```bash
-# Compilar para o sistema atual (Linux ou Windows)
+# Compilar para Linux (com WebKit2GTK 4.1):
+wails build -tags webkit2_41
+
+# Compilar para Windows:
 wails build
 
 # Opcional: remover símbolos de depuração para reduzir o tamanho do executável
-wails build -ldflags "-s -w"
+wails build -tags webkit2_41 -ldflags "-s -w"
 ```
 
 O executável é gerado no diretório `build/bin/`.
