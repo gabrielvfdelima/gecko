@@ -5,6 +5,9 @@ Editor de texto e Markdown para desktop com foco em velocidade, baixo consumo de
 ## Recursos
 
 - **Visualização híbrida:** oculta marcadores de sintaxe Markdown nas linhas inativas e os revela na linha do cursor, sem quebras de layout.
+- **Topologias e diagramas nativos:** renderização SVG instantânea para diagramas ASCII/Unicode, fluxogramas, sequências e gráficos (incluindo blocos Mermaid), com zoom, arrastar (pan) e modal ampliado sem editar o texto.
+- **Tabelas GFM interativas:** renderização com suporte a `<br>` inline, redimensionamento manual e persistente da largura das colunas e visualizador ampliado em modal.
+- **Exportação de documentos e gráficos:** exportação do arquivo Markdown para PDF (`Ctrl + Shift + P` ou botão `PDF` na barra superior) com pré-visualização, formatos A4/Carta, temas claro/escuro e texto pesquisável; exportação direta de topologias e tabelas para PNG e JPEG (tema atual ou fundo claro).
 - **Modo Foco / Zen (`F11` ou `Alt + Z`):** oculta barras laterais, abas, minimapa e molduras para escrita sem distrações. Pressione `Escape` para retornar.
 - **Estatísticas em tempo real:** contagem de palavras e caracteres (com e sem espaços) do documento ou do texto selecionado na barra de status.
 - **Navegação por arquivos:** suporte a múltiplos workspaces, ordenação flexível (nome, data ou ordem manual) e arrastar-e-soltar de arquivos e abas.
@@ -147,6 +150,7 @@ Pressione `F1` no aplicativo para visualizar o mapa completo de atalhos. Os coma
 | Atalho | Ação |
 |---|---|
 | `Ctrl + S` | Salvar arquivo ativo |
+| `Ctrl + Shift + P` | Pré-visualizar e exportar documento para PDF |
 | `Ctrl + P` | Busca rápida de arquivos (Quick Open) |
 | `F11` ou `Alt + Z` | Alternar Modo Foco / Zen |
 | `Ctrl + \` | Alternar visibilidade da barra lateral |
