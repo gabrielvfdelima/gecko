@@ -94,6 +94,12 @@ export const GECKO_SHORTCUT_SECTIONS: ShortcutSection[] = [
                 description: "Escolhe pasta de destino e nome do arquivo",
             },
             {
+                id: "export-pdf",
+                label: "Exportar para PDF...",
+                keys: ["Ctrl + Shift + P"],
+                description: "Pré-visualiza e exporta o documento atual como PDF",
+            },
+            {
                 id: "close-active-tab",
                 label: "Fechar aba ativa",
                 keys: ["Ctrl + W"],

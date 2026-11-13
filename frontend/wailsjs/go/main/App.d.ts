@@ -26,6 +26,8 @@ export function ListSystemDirectory(arg1:string):Promise<main.DirectoryListing>;
 
 export function LoadSettings():Promise<string>;
 
+export function PromptSaveExportFile(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function PromptSaveFileAs(arg1:string,arg2:string):Promise<string>;
 
 export function ReadFile(arg1:string):Promise<main.FileDocument>;
@@ -35,6 +37,8 @@ export function ReadWorkspaceTree(arg1:string):Promise<main.FileNode>;
 export function RemoveWorkspaceRoot(arg1:string):Promise<void>;
 
 export function RenameEntry(arg1:string,arg2:string):Promise<void>;
+
+export function SaveBinaryFile(arg1:string,arg2:string):Promise<number>;
 
 export function SaveFile(arg1:string,arg2:string,arg3:string):Promise<number>;
 

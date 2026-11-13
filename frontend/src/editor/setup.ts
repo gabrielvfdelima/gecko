@@ -53,6 +53,7 @@ import {
   linkClickHandler,
   markdownTableField,
 } from './hybridMarkdown';
+import { markdownDiagramField } from './diagramWidget';
 import { geckoShortcutsKeymap } from './shortcuts';
 import { getFocusable } from '../keyboard';
 
@@ -612,6 +613,7 @@ export function createGeckoEditorState(
     syntaxHighlighting(geckoHighlightStyle),
     hybridMarkdownPlugin,
     markdownTableField,
+    markdownDiagramField,
     linkClickHandler,
     autoLinkExtension,
     createSmartPasteExtension(callbacks.onStatusMessage),

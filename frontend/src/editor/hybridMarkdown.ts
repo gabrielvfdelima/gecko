@@ -16,6 +16,17 @@ import {
   WidgetType,
 } from '@codemirror/view';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { extractFencedDiagramInfo } from './diagramWidget';
+import {
+  copyRawTableText,
+  createInteractiveTable,
+  getTableWidthKey,
+  makeTableToolbarButton,
+  openTableViewerModal,
+  parseMarkdownTable,
+} from './tableViewer';
+import { exportTableImage } from '../export/canvasTable';
+import { openImageExportMenu } from '../export/exportUtils';
 
 const MAX_HYBRID_DOC_LENGTH = 1048576; // 1 MB safeguard
 
@@ -342,6 +353,17 @@ function buildHybridMarkdownDecorations(view: EditorView): DecorationSet {
           case 'FencedCode': {
             const startLineNum = state.doc.lineAt(nodeFrom).number;
             const endLineNum = state.doc.lineAt(nodeTo).number;
+            let diagramActiveLine = false;
+            for (let l = startLineNum; l <= endLineNum; l++) {
+              if (activeLines.has(l)) {
+                diagramActiveLine = true;
+                break;
+              }
+            }
+            if (!diagramActiveLine && extractFencedDiagramInfo(state, node.node)) {
+              return false;
+            }
+
             const marks = node.node.getChildren('CodeMark');
             const infoNode = node.node.getChild('CodeInfo');
             const lang = infoNode ? state.sliceDoc(infoNode.from, infoNode.to).trim() : '';
@@ -556,79 +578,61 @@ export const hybridMarkdownPlugin = ViewPlugin.fromClass(
   }
 );
 
-interface ParsedMarkdownTable {
-  headers: string[];
-  alignments: ('left' | 'center' | 'right')[];
-  rows: string[][];
-  rowLineOffsets: number[];
-}
-
-function splitTableRow(line: string): string[] {
-  let trimmed = line.trim();
-  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
-  if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
-  return trimmed.split('|').map((col) => col.trim());
+function sanitizeTableHref(rawHref: string): string | null {
+  const decoded = rawHref
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .trim();
+  if (!decoded) return null;
+  if (
+    decoded.startsWith('#') ||
+    decoded.startsWith('/') ||
+    decoded.startsWith('./') ||
+    decoded.startsWith('../')
+  ) {
+    return decoded;
+  }
+  const schemeMatch = decoded.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+  if (!schemeMatch) {
+    return decoded;
+  }
+  const scheme = schemeMatch[1].toLowerCase();
+  if (scheme === 'http' || scheme === 'https' || scheme === 'mailto') {
+    return decoded;
+  }
+  return null;
 }
 
 function renderCellInlineMarkdown(text: string): string {
-  let escaped = text
+  const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  escaped = escaped.replace(/`([^`]+)`/g, '<code class="cm-md-table-code">$1</code>');
-  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  escaped = escaped.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  escaped = escaped.replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/gi, '<u>$1</u>');
-  escaped = escaped.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="cm-md-table-link">$1</a>');
+  const segments = escaped.split(/(`[^`]+`)/g);
+  return segments
+    .map((segment, index) => {
+      if (index % 2 === 1) {
+        return `<code class="cm-md-table-code">${segment.slice(1, -1)}</code>`;
+      }
 
-  return escaped;
-}
-
-function parseMarkdownTable(rawText: string): ParsedMarkdownTable | null {
-  const lines = rawText.split('\n');
-  if (lines.length < 2) return null;
-
-  const headerLine = lines[0];
-  const delimiterLine = lines[1];
-
-  const headers = splitTableRow(headerLine);
-  if (headers.length === 0) return null;
-
-  const delimiterCols = splitTableRow(delimiterLine);
-  const alignments: ('left' | 'center' | 'right')[] = [];
-  for (let i = 0; i < headers.length; i++) {
-    const d = delimiterCols[i] || '';
-    const hasLeftColon = d.startsWith(':');
-    const hasRightColon = d.endsWith(':');
-    if (hasLeftColon && hasRightColon) {
-      alignments.push('center');
-    } else if (hasRightColon) {
-      alignments.push('right');
-    } else {
-      alignments.push('left');
-    }
-  }
-
-  const rows: string[][] = [];
-  const rowLineOffsets: number[] = [0];
-  let currentOffset = headerLine.length + 1;
-  currentOffset += delimiterLine.length + 1;
-
-  for (let i = 2; i < lines.length; i++) {
-    const line = lines[i];
-    rowLineOffsets.push(currentOffset);
-    currentOffset += line.length + 1;
-    if (line.trim().length === 0 || !line.includes('|')) continue;
-    const cols = splitTableRow(line);
-    while (cols.length < headers.length) {
-      cols.push('');
-    }
-    rows.push(cols.slice(0, headers.length));
-  }
-
-  return { headers, alignments, rows, rowLineOffsets };
+      let out = segment;
+      out = out.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+      out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+      out = out.replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/gi, '<u>$1</u>');
+      out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => {
+        const safe = sanitizeTableHref(url);
+        if (!safe) return label;
+        const attrHref = safe
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;');
+        return `<a href="${attrHref}" class="cm-md-table-link">${label}</a>`;
+      });
+      return out;
+    })
+    .join('');
 }
 
 class MarkdownTableWidget extends WidgetType {
@@ -641,15 +645,17 @@ class MarkdownTableWidget extends WidgetType {
   }
 
   eq(other: MarkdownTableWidget): boolean {
-    return this.rawText === other.rawText && this.tableFrom === other.tableFrom && this.tableTo === other.tableTo;
+    return this.rawText === other.rawText;
   }
 
   get estimatedHeight(): number {
-    return 100;
+    const rowCount = this.rawText.split('\n').length;
+    const brCount = (this.rawText.match(/<br\s*\/?>/gi) || []).length;
+    return Math.max(107, rowCount * 36 + brCount * 20 + 31);
   }
 
-  ignoreEvent(event: Event): boolean {
-    return false;
+  ignoreEvent(): boolean {
+    return true;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -662,73 +668,150 @@ class MarkdownTableWidget extends WidgetType {
       return wrap;
     }
 
-    const table = document.createElement('table');
-    table.className = 'cm-md-table';
+    const widthKey = getTableWidthKey(parsed);
+    const rowCount = parsed.rows.length;
+    const colCount = parsed.headers.length;
+    const label = `Tabela · ${rowCount}×${colCount}`;
 
-    // Clicking on table container or border focuses the table in raw mode
-    wrap.addEventListener('mousedown', (e) => {
-      if (e.target === wrap || e.target === table) {
-        e.preventDefault();
+    wrap.setAttribute('role', 'region');
+    wrap.setAttribute('aria-label', `${label} visualizada`);
+
+    const jumpToEdit = () => {
+      try {
+        const pos = view.posAtDOM(wrap);
+        const line = view.state.doc.lineAt(pos);
         view.dispatch({
-          selection: EditorSelection.cursor(this.tableFrom),
+          selection: EditorSelection.cursor(line.from),
           scrollIntoView: true,
         });
+        view.focus();
+      } catch {
+        try {
+          view.dispatch({
+            selection: EditorSelection.cursor(Math.min(this.tableFrom, view.state.doc.length)),
+            scrollIntoView: true,
+          });
+        } catch {
+          // Ignore stale range
+        }
         view.focus();
       }
-    });
+    };
 
-    // Header
-    const thead = document.createElement('thead');
-    const headerTr = document.createElement('tr');
-    headerTr.addEventListener('mousedown', (e) => {
+    // Header Toolbar (matches diagram/topology card language)
+    const header = document.createElement('div');
+    header.className = 'cm-md-diagram-header';
+    header.title = 'Arraste as bordas das colunas para redimensionar · Clique na tabela para ampliar';
+
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'cm-md-diagram-title-group';
+    leftGroup.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11"/><line x1="1.5" y1="6.5" x2="14.5" y2="6.5"/><line x1="6.5" y1="2.5" x2="6.5" y2="13.5"/></svg>`;
+
+    const badgeText = document.createElement('span');
+    badgeText.className = 'cm-md-diagram-badge';
+    badgeText.textContent = label;
+    leftGroup.appendChild(badgeText);
+
+    const actions = document.createElement('div');
+    actions.className = 'cm-md-diagram-actions';
+
+    const resetColsBtn = makeTableToolbarButton(
+      '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8a5 5 0 1 0 1.4-3.5L3 6"/><polyline points="3 2.5 3 6 6.5 6"/></svg><span>Colunas</span>',
+      'Resetar larguras das colunas para automático',
+      true
+    );
+    const expandBtn = makeTableToolbarButton(
+      '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="10 2 14 2 14 6"/><polyline points="6 14 2 14 2 10"/><line x1="14" y1="2" x2="9.5" y2="6.5"/><line x1="2" y1="14" x2="6.5" y2="9.5"/></svg><span>Expandir</span>',
+      'Abrir visualização ampliada',
+      true
+    );
+    const exportBtn = makeTableToolbarButton(
+      '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 11.5v2h11v-2"/></svg><span>Exportar</span>',
+      'Exportar tabela (PNG ou JPEG)',
+      true
+    );
+    const copyBtn = makeTableToolbarButton(
+      '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9"/><path d="M11 5V2H2v9h3"/></svg><span>Copiar</span>',
+      'Copiar tabela Markdown',
+      true
+    );
+    const editBtn = makeTableToolbarButton(
+      '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg><span>Editar</span>',
+      'Editar Markdown bruto',
+      true
+    );
+
+    actions.append(resetColsBtn, expandBtn, exportBtn, copyBtn, editBtn);
+    header.append(leftGroup, actions);
+
+    const viewport = document.createElement('div');
+    viewport.className = 'cm-md-table-viewport';
+
+    let controllerRef: ReturnType<typeof createInteractiveTable> | null = null;
+
+    const updateResetBtn = (hasCustom: boolean) => {
+      resetColsBtn.classList.toggle('is-active', hasCustom);
+    };
+
+    const openExpandedModal = () => {
+      openTableViewerModal({
+        rawText: this.rawText,
+        parsed,
+        widthKey,
+        renderCellHtml: renderCellInlineMarkdown,
+        onOpenLink: openExternalUrl,
+        onEdit: jumpToEdit,
+        onWidthsSynced: () => {
+          controllerRef?.syncFromCache();
+          updateResetBtn(controllerRef?.hasCustomWidths() ?? false);
+        },
+      });
+    };
+
+    const controller = createInteractiveTable({
+      parsed,
+      widthKey,
+      renderCellHtml: renderCellInlineMarkdown,
+      inspectable: true,
+      onOpenLink: openExternalUrl,
+      onInspect: openExpandedModal,
+      onWidthsChange: (widths) => updateResetBtn(widths !== null),
+    });
+    controllerRef = controller;
+    updateResetBtn(controller.hasCustomWidths());
+
+    viewport.appendChild(controller.table);
+    wrap.append(header, viewport);
+
+    resetColsBtn.addEventListener('click', () => controller.resetWidths());
+    expandBtn.addEventListener('click', openExpandedModal);
+    header.addEventListener('dblclick', (e) => {
+      if ((e.target as HTMLElement)?.closest?.('button')) return;
       e.preventDefault();
-      view.dispatch({
-        selection: EditorSelection.cursor(this.tableFrom),
-        scrollIntoView: true,
-      });
-      view.focus();
+      jumpToEdit();
     });
-
-    parsed.headers.forEach((h, colIdx) => {
-      const th = document.createElement('th');
-      th.style.textAlign = parsed.alignments[colIdx] || 'left';
-      th.innerHTML = renderCellInlineMarkdown(h);
-      headerTr.appendChild(th);
+    exportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openImageExportMenu(exportBtn, (format, theme) =>
+        exportTableImage({
+          parsed,
+          widthKey,
+          format,
+          theme,
+        })
+      );
     });
-    thead.appendChild(headerTr);
-    table.appendChild(thead);
-
-    // Body
-    const tbody = document.createElement('tbody');
-    parsed.rows.forEach((row, rowIdx) => {
-      const tr = document.createElement('tr');
-      const rowOffset = parsed.rowLineOffsets[rowIdx + 1] ?? 0;
-      tr.addEventListener('mousedown', (e) => {
-        const target = e.target as HTMLElement;
-        if (target.tagName === 'A') {
-          e.preventDefault();
-          const href = target.getAttribute('href');
-          if (href) openExternalUrl(href);
-          return;
-        }
-        e.preventDefault();
-        view.dispatch({
-          selection: EditorSelection.cursor(this.tableFrom + rowOffset),
-          scrollIntoView: true,
-        });
-        view.focus();
-      });
-
-      row.forEach((cell, colIdx) => {
-        const td = document.createElement('td');
-        td.style.textAlign = parsed.alignments[colIdx] || 'left';
-        td.innerHTML = renderCellInlineMarkdown(cell);
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
+    copyBtn.addEventListener('click', async () => {
+      const ok = await copyRawTableText(this.rawText);
+      const labelSpan = copyBtn.querySelector('span');
+      if (ok && labelSpan) {
+        labelSpan.textContent = 'Copiado';
+        setTimeout(() => {
+          if (labelSpan.isConnected) labelSpan.textContent = 'Copiar';
+        }, 1400);
+      }
     });
-    table.appendChild(tbody);
-    wrap.appendChild(table);
+    editBtn.addEventListener('click', jumpToEdit);
 
     return wrap;
   }

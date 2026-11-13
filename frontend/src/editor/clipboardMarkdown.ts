@@ -23,7 +23,7 @@ function convertTableToMarkdown(tableEl: HTMLElement): string {
       headerIndex = idx;
     }
     const rowData = cells.map((cell) => {
-      return convertNodeToMarkdown(cell).replace(/\n+/g, ' ').trim();
+      return convertNodeToMarkdown(cell).trim().replace(/\n+/g, '<br>');
     });
     tableData.push(rowData);
   });

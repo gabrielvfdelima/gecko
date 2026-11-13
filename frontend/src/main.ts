@@ -77,6 +77,8 @@ import {
 } from "./theme/colorEngine";
 import { createColorConfigModal } from "./theme/colorModal";
 import { createShortcutsModal } from "./shortcuts/shortcutsModal";
+import { registerExportHost, sanitizeFileStem } from "./export/exportUtils";
+import { openPdfExportModal } from "./export/pdfExporter";
 
 type SortMode = "name" | "modTime" | "birthTime" | "manual";
 type SortDirection = "asc" | "desc";
@@ -252,6 +254,9 @@ const emptyBtnOpenFolder = document.getElementById(
 const emptyBtnNewFile = document.getElementById(
     "empty-btn-new-file",
 ) as HTMLButtonElement;
+const btnExportPdf = document.getElementById(
+    "btn-export-pdf",
+) as HTMLButtonElement | null;
 
 const btnWinMinimize = document.getElementById(
     "btn-win-minimize",
@@ -349,6 +354,57 @@ function showTemporaryStatus(msg: string, duration = 4000): void {
     statusTimer = setTimeout(() => {
         showStatusMessage("");
     }, duration);
+}
+
+function getActiveTabMarkdownAndName(): {
+    markdown: string;
+    fileName: string;
+} | null {
+    if (!activeTabPath) return null;
+    const tab = openTabs.find((t) => t.path === activeTabPath);
+    if (!tab) return null;
+    const markdown = editorView
+        ? editorView.state.doc.toString()
+        : tab.state.doc.toString();
+    return { markdown, fileName: tab.name || "documento.md" };
+}
+
+function openPdfForActiveTab(): void {
+    const info = getActiveTabMarkdownAndName();
+    if (!info) {
+        showTemporaryStatus(
+            "Abra um documento Markdown para exportar para PDF.",
+        );
+        return;
+    }
+    openPdfExportModal({
+        markdown: info.markdown,
+        fileName: info.fileName,
+    });
+}
+
+async function openPdfForPath(filePath: string): Promise<void> {
+    const openTab = openTabs.find((t) => t.path === filePath);
+    if (openTab) {
+        const markdown =
+            openTab.path === activeTabPath && editorView
+                ? editorView.state.doc.toString()
+                : openTab.state.doc.toString();
+        openPdfExportModal({
+            markdown,
+            fileName: openTab.name || getBaseName(filePath),
+        });
+        return;
+    }
+    try {
+        const doc = await ReadFile(filePath);
+        openPdfExportModal({
+            markdown: doc.content,
+            fileName: doc.name || getBaseName(filePath),
+        });
+    } catch (err) {
+        showTemporaryStatus(`Erro ao ler arquivo para PDF: ${String(err)}`);
+    }
 }
 
 // Settings Persistence & Legacy Migration
@@ -3756,6 +3812,10 @@ function renderTabs(): void {
             ".tab-item",
         )?.dataset.path || activeTabPath;
 
+    if (btnExportPdf) {
+        btnExportPdf.classList.toggle("hidden", openTabs.length === 0);
+    }
+
     tabListEl.innerHTML = "";
     tabItemEls = [];
 
@@ -4320,6 +4380,10 @@ function openTreeContextMenu(x: number, y: number, node: main.FileNode): void {
                 label: "Abrir Arquivo",
                 action: () => void openFileInTab(node.path, true),
             },
+            {
+                label: "Exportar para PDF...",
+                action: () => void openPdfForPath(node.path),
+            },
             { separator: true },
             {
                 label: "Renomear Arquivo (F2)",
@@ -4352,6 +4416,10 @@ function openTabContextMenu(
             {
                 label: "Salvar Como... (Ctrl+Shift+S)",
                 action: () => void openIntegratedSaveFileModal(tab),
+            },
+            {
+                label: "Exportar para PDF... (Ctrl+Shift+P)",
+                action: () => void openPdfForPath(tab.path),
             },
             {
                 label: "Renomear Arquivo (F2)",
@@ -4664,6 +4732,13 @@ function openGeckoBrandMenu(anchorEl: HTMLElement, focusFirstItem = false): void
                 label: "Configuração de Cores (Ctrl+,)",
                 action: () => {
                     openPrimaryColorModal();
+                },
+            },
+            { separator: true },
+            {
+                label: "Exportar Documento para PDF... (Ctrl+Shift+P)",
+                action: () => {
+                    openPdfForActiveTab();
                 },
             },
         ],
@@ -5459,6 +5534,12 @@ function bindEvents(): void {
         }
     });
 
+    if (btnExportPdf) {
+        btnExportPdf.addEventListener("click", () => {
+            openPdfForActiveTab();
+        });
+    }
+
     btnOpenFolder.addEventListener("click", (e) => {
         e.stopPropagation();
         if (!contextMenuEl.classList.contains("hidden")) {
@@ -5785,6 +5866,14 @@ function bindEvents(): void {
                 },
             });
         }
+
+        options.push({ separator: true });
+        options.push({
+            label: "Exportar Documento para PDF... (Ctrl+Shift+P)",
+            action: () => {
+                openPdfForActiveTab();
+            },
+        });
 
         showContextMenu(e.clientX, e.clientY, options);
     });
@@ -6318,6 +6407,13 @@ function bindEvents(): void {
             },
         },
         {
+            key: "Mod-Shift-p",
+            description: "Exportar documento para PDF",
+            run: () => {
+                openPdfForActiveTab();
+            },
+        },
+        {
             key: "Mod-Shift-v",
             description: "Colar texto puro",
             when: () => Boolean(editorView),
@@ -6478,6 +6574,30 @@ function setupRuntimeListener(): void {
 }
 
 async function initGecko(): Promise<void> {
+    registerExportHost({
+        getDefaultDir: () => {
+            if (activeTabPath && !activeTabPath.startsWith("untitled:")) {
+                return getDirName(activeTabPath);
+            }
+            return workspaces[0]?.root || "";
+        },
+        getActiveFileStem: () => {
+            if (activeTabPath) {
+                const tab = openTabs.find((t) => t.path === activeTabPath);
+                if (tab?.name) return sanitizeFileStem(tab.name, "documento");
+                if (!activeTabPath.startsWith("untitled:")) {
+                    return sanitizeFileStem(
+                        getBaseName(activeTabPath),
+                        "documento",
+                    );
+                }
+            }
+            return "documento";
+        },
+        notifyStatus: (message: string) => {
+            showTemporaryStatus(message, 4500);
+        },
+    });
     bindEvents();
     await loadAppSettings();
     applyGeckoThemeColor(appSettings.accentColor || DEFAULT_GECKO_BRAND_COLOR);

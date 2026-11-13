@@ -2085,11 +2085,17 @@ button.shortcut-row.action-row:focus-visible kbd {
 .cm-md-table-container {
   margin: 0;
   display: block;
-  overflow-x: auto;
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-left: 2px solid var(--accent-primary);
+  border-radius: 0px;
   background-color: var(--bg-surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.cm-md-table-viewport {
+  width: 100%;
+  overflow-x: auto;
+  background-color: var(--bg-surface);
 }
 
 .cm-md-table {
@@ -2101,11 +2107,19 @@ button.shortcut-row.action-row:focus-visible kbd {
   color: var(--text-primary);
 }
 
+.cm-md-table.is-fixed-layout {
+  table-layout: fixed;
+}
+
 .cm-md-table th,
 .cm-md-table td {
   padding: 8px 12px;
+  vertical-align: top;
   border-bottom: 1px solid var(--border-subtle);
   border-right: 1px solid var(--border-subtle);
+  overflow-wrap: break-word;
+  word-break: break-word;
+  box-sizing: border-box;
 }
 
 .cm-md-table th:last-child,
@@ -2115,17 +2129,66 @@ button.shortcut-row.action-row:focus-visible kbd {
 
 .cm-md-table thead tr {
   background-color: var(--bg-active-line);
-  cursor: text;
 }
 
 .cm-md-table th {
+  position: relative;
   font-weight: 600;
   color: var(--md-heading);
+  user-select: none;
+  transition: background-color 100ms ease;
+}
+
+.cm-md-table th.is-resizing {
+  background-color: var(--bg-hover);
+}
+
+.cm-md-table-th-content {
+  padding-right: 6px;
+  user-select: text;
+}
+
+.cm-md-table-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3;
+  touch-action: none;
+}
+
+.cm-md-table th:last-child .cm-md-table-resizer {
+  right: 0;
+  width: 7px;
+}
+
+.cm-md-table-resizer::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 3px;
+  width: 2px;
+  background-color: transparent;
+  transition: background-color 120ms ease;
+}
+
+.cm-md-table th:hover .cm-md-table-resizer::after,
+.cm-md-table-resizer:hover::after,
+.cm-md-table-resizer.is-resizing::after {
+  background-color: var(--accent-primary);
 }
 
 .cm-md-table tbody tr {
   cursor: text;
   transition: background-color 100ms ease;
+}
+
+.cm-md-table.is-inspectable thead tr,
+.cm-md-table.is-inspectable tbody tr {
+  cursor: pointer;
 }
 
 .cm-md-table tbody tr:hover {
@@ -2683,4 +2746,365 @@ button.shortcut-row.action-row:focus-visible kbd {
 .shortcuts-footer-tip {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Diagram & Topology Visualization (Live Preview & Inspection Modal)
+   ========================================================================== */
+.cm-md-diagram-card {
+  margin: 0;
+  display: block;
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--accent-primary);
+  border-radius: 0px;
+  background-color: var(--bg-surface);
+  overflow: hidden;
+}
+
+.cm-md-diagram-header {
+  height: 29px;
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  background-color: var(--bg-workbench);
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+.cm-md-diagram-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.cm-md-diagram-badge {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-md-diagram-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.cm-md-diagram-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 21px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.cm-md-diagram-btn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.cm-md-diagram-btn.is-active {
+  background-color: var(--bg-active-line);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.cm-md-diagram-zoom-readout {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  min-width: 40px;
+  justify-content: center;
+}
+
+.cm-md-diagram-viewport {
+  position: relative;
+  width: 100%;
+  max-height: 540px;
+  overflow: auto;
+  padding: 14px;
+  box-sizing: border-box;
+  background-color: var(--bg-surface);
+  cursor: grab;
+}
+
+.cm-md-diagram-viewport.is-panning,
+.gecko-diagram-modal-viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.cm-md-diagram-stage,
+.gecko-diagram-modal-stage {
+  display: inline-flex;
+  min-width: 100%;
+  min-height: 100%;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.gecko-diagram-svg {
+  display: block;
+  flex-shrink: 0;
+  shape-rendering: geometricPrecision;
+  user-select: none;
+}
+
+.cm-md-diagram-fallback {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  overflow-x: auto;
+}
+
+/* Fullscreen Inspection Modal (registered via keyboard layer stack) */
+.gecko-diagram-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background-color: rgba(0, 0, 0, 0.72);
+}
+
+.gecko-diagram-modal-box {
+  width: min(94vw, 1360px);
+  height: min(90vh, 880px);
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-workbench);
+  border: 1px solid var(--border-subtle);
+  border-top: 2px solid var(--accent-primary);
+  border-radius: 0px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  outline: none;
+}
+
+.gecko-diagram-modal-header {
+  height: 36px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  background-color: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+.gecko-diagram-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.gecko-diagram-modal-title {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.gecko-diagram-modal-hint {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gecko-diagram-modal-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.gecko-diagram-modal-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  box-sizing: border-box;
+  background-color: var(--bg-surface);
+  cursor: grab;
+}
+
+.gecko-table-modal-viewport {
+  cursor: default;
+  padding: 20px;
+}
+
+.gecko-table-modal-stage {
+  display: block;
+  width: fit-content;
+  min-width: 100%;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
+  --table-scale: 1;
+}
+
+.gecko-table-modal-stage .cm-md-table {
+  font-size: calc(13px * var(--table-scale, 1));
+}
+
+.gecko-table-modal-stage .cm-md-table th,
+.gecko-table-modal-stage .cm-md-table td {
+  padding: calc(8px * var(--table-scale, 1)) calc(12px * var(--table-scale, 1));
+}
+
+.gecko-table-modal-stage .cm-md-table-code {
+  font-size: calc(12px * var(--table-scale, 1));
+}
+
+@media (max-width: 680px) {
+  .cm-md-diagram-btn span,
+  .gecko-diagram-modal-hint {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Export UI: Image Popups, Topbar PDF Trigger & PDF Preview Modal
+   ========================================================================== */
+
+.tabbar-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: auto;
+  height: 24px;
+  align-self: center;
+  margin-right: 8px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  flex-shrink: 0;
+  --wails-draggable: no-drag;
+}
+
+.tabbar-export-btn.hidden {
+  display: none;
+}
+
+.tabbar-export-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-active-line);
+  border-color: var(--accent-primary);
+}
+
+.gecko-export-menu {
+  z-index: 10080;
+  min-width: 224px;
+  border-radius: 0px;
+}
+
+.gecko-export-menu .context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.gecko-export-menu-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+}
+
+.gecko-pdf-modal-box {
+  width: min(1040px, 94vw);
+  height: min(92vh, 920px);
+  border-radius: 0px;
+}
+
+.gecko-pdf-controls {
+  flex-wrap: wrap;
+}
+
+.gecko-pdf-ctrl-sep {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background-color: var(--border-subtle);
+}
+
+.gecko-pdf-save-btn {
+  height: 26px;
+  padding: 0 11px;
+  font-size: 11.5px;
+  border-radius: 2px;
+}
+
+.gecko-pdf-preview-viewport {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 24px 20px 32px;
+  cursor: default;
+  background-color: var(--bg-workbench);
+}
+
+.gecko-pdf-sheet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 0px;
+}
+
+.gecko-pdf-sheet-canvas {
+  display: block;
+  width: min(740px, calc(90vw - 64px));
+  height: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0px;
+  background-color: #ffffff;
+}
+
+.gecko-pdf-sheet-caption {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
 }

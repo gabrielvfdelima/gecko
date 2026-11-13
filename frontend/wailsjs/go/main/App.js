@@ -50,6 +50,10 @@ export function LoadSettings() {
   return window['go']['main']['App']['LoadSettings']();
 }
 
+export function PromptSaveExportFile(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PromptSaveExportFile'](arg1, arg2, arg3);
+}
+
 export function PromptSaveFileAs(arg1, arg2) {
   return window['go']['main']['App']['PromptSaveFileAs'](arg1, arg2);
 }
@@ -68,6 +72,10 @@ export function RemoveWorkspaceRoot(arg1) {
 
 export function RenameEntry(arg1, arg2) {
   return window['go']['main']['App']['RenameEntry'](arg1, arg2);
+}
+
+export function SaveBinaryFile(arg1, arg2) {
+  return window['go']['main']['App']['SaveBinaryFile'](arg1, arg2);
 }
 
 export function SaveFile(arg1, arg2, arg3) {

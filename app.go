@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -18,6 +19,7 @@ import (
 )
 
 const maxFileSizeBytes int64 = 20 * 1024 * 1024 // 20 MB
+const maxBinaryExportBytes int64 = 64 * 1024 * 1024 // 64 MB for exported PDF/images
 
 var ignoredDirectories = map[string]bool{
 	".git":         true,
@@ -247,6 +249,87 @@ func (a *App) PromptSaveFileAs(defaultDir string, suggestedName string) (string,
 		return "", nil
 	}
 	return ensureMarkdownExtension(filepath.Clean(chosen)), nil
+}
+
+func ensureExportExtension(targetPath string, format string) string {
+	clean := strings.TrimSpace(targetPath)
+	if clean == "" {
+		return clean
+	}
+	lower := strings.ToLower(clean)
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "pdf":
+		if strings.HasSuffix(lower, ".pdf") {
+			return clean
+		}
+		return clean + ".pdf"
+	case "png":
+		if strings.HasSuffix(lower, ".png") {
+			return clean
+		}
+		return clean + ".png"
+	case "jpeg", "jpg":
+		if strings.HasSuffix(lower, ".jpg") || strings.HasSuffix(lower, ".jpeg") {
+			return clean
+		}
+		return clean + ".jpg"
+	default:
+		return clean
+	}
+}
+
+// PromptSaveExportFile opens the native Save dialog for PDF, PNG, or JPEG exports.
+func (a *App) PromptSaveExportFile(defaultDir string, suggestedName string, format string) (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("contexto do runtime Wails não inicializado")
+	}
+
+	normFmt := strings.ToLower(strings.TrimSpace(format))
+	title := "Exportar Arquivo"
+	var filters []runtime.FileFilter
+
+	switch normFmt {
+	case "pdf":
+		title = "Exportar Documento como PDF"
+		filters = []runtime.FileFilter{
+			{DisplayName: "Documento PDF (*.pdf)", Pattern: "*.pdf"},
+		}
+	case "png":
+		title = "Exportar Imagem PNG"
+		filters = []runtime.FileFilter{
+			{DisplayName: "Imagem PNG (*.png)", Pattern: "*.png"},
+		}
+	case "jpeg", "jpg":
+		title = "Exportar Imagem JPEG"
+		filters = []runtime.FileFilter{
+			{DisplayName: "Imagem JPEG (*.jpg;*.jpeg)", Pattern: "*.jpg;*.jpeg"},
+		}
+	default:
+		return "", fmt.Errorf("formato de exportação não suportado: %s", format)
+	}
+
+	suggestedName = strings.TrimSpace(suggestedName)
+	if suggestedName == "" {
+		suggestedName = "export"
+	}
+	suggestedName = ensureExportExtension(suggestedName, normFmt)
+
+	chosen, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultDirectory:     strings.TrimSpace(defaultDir),
+		DefaultFilename:      suggestedName,
+		Title:                title,
+		CanCreateDirectories: true,
+		Filters:              filters,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	chosen = strings.TrimSpace(chosen)
+	if chosen == "" {
+		return "", nil
+	}
+	return ensureExportExtension(filepath.Clean(chosen), normFmt), nil
 }
 
 // GetUserStandardDirectories returns real existing user directories (~, Documents, Projects, Desktop).
@@ -718,6 +801,65 @@ func (a *App) SaveFile(filePath string, content string, lineEnding string) (int6
 		return 0, err
 	}
 
+	return int64(len(data)), nil
+}
+
+// SaveBinaryFile atomically writes base64-encoded binary data (PDF/PNG/JPEG) to disk.
+func (a *App) SaveBinaryFile(filePath string, base64Data string) (int64, error) {
+	cleanPath := filepath.Clean(strings.TrimSpace(filePath))
+	if cleanPath == "" || cleanPath == "." {
+		return 0, errors.New("caminho de arquivo inválido")
+	}
+
+	payload := strings.TrimSpace(base64Data)
+	if idx := strings.Index(payload, ","); idx != -1 && strings.Contains(payload[:idx], ";base64") {
+		payload = payload[idx+1:]
+	}
+
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return 0, fmt.Errorf("dados binários inválidos: %w", err)
+	}
+	if int64(len(data)) > maxBinaryExportBytes {
+		return 0, errors.New("arquivo exportado excede o limite de segurança de 64 MB")
+	}
+
+	dir := filepath.Dir(cleanPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return 0, err
+	}
+
+	tmpFile, err := os.CreateTemp(dir, ".gecko-export-*")
+	if err != nil {
+		if writeErr := os.WriteFile(cleanPath, data, 0644); writeErr != nil {
+			return 0, writeErr
+		}
+		return int64(len(data)), nil
+	}
+
+	tmpPath := tmpFile.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return 0, err
+	}
+	if err := tmpFile.Chmod(0644); err != nil {
+		_ = tmpFile.Close()
+		return 0, err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return 0, err
+	}
+	if err := os.Rename(tmpPath, cleanPath); err != nil {
+		return 0, err
+	}
+	cleanup = false
 	return int64(len(data)), nil
 }
 
