@@ -8,9 +8,10 @@ Editor de texto e Markdown para desktop com foco em velocidade, baixo consumo de
 - **Topologias e diagramas nativos:** renderização SVG instantânea para diagramas ASCII/Unicode, fluxogramas, sequências e gráficos (incluindo blocos Mermaid), com zoom, arrastar (pan) e modal ampliado sem editar o texto.
 - **Tabelas GFM interativas:** renderização com suporte a `<br>` inline, redimensionamento manual e persistente da largura das colunas e visualizador ampliado em modal.
 - **Exportação de documentos e gráficos:** exportação do arquivo Markdown para PDF (`Ctrl + Shift + P` ou botão `PDF` na barra superior) com pré-visualização, formatos A4/Carta, temas claro/escuro e texto pesquisável; exportação direta de topologias e tabelas para PNG e JPEG (tema atual ou fundo claro).
+- **Bloco de assinatura digital (` ```assinatura ` / `Ctrl + Alt + A`):** card Live Preview no editor com termo de concordância, espaço reservado para assinatura eletrônica **gov.br**, linha de assinatura, nome completo e cargo. Quando `nome` ou `cargo` ficam vazios no Markdown, o PDF exportado inclui automaticamente campos **AcroForm preenchíveis** nativos.
 - **Modo Foco / Zen (`F11` ou `Alt + Z`):** oculta barras laterais, abas, minimapa e molduras para escrita sem distrações. Pressione `Escape` para retornar.
 - **Estatísticas em tempo real:** contagem de palavras e caracteres (com e sem espaços) do documento ou do texto selecionado na barra de status.
-- **Navegação por arquivos:** suporte a múltiplos workspaces, ordenação flexível (nome, data ou ordem manual) e arrastar-e-soltar de arquivos e abas.
+- **Navegação por arquivos:** suporte a múltiplos workspaces (com remoção individual ou em lote via **Remover Todos os Workspaces**), ordenação flexível (nome, data ou ordem manual) e arrastar-e-soltar de arquivos e abas.
 - **Sincronização com disco:** observação de alterações externas via `fsnotify` com proteção contra perda de edições.
 - **Edição avançada:** suporte a multi-cursor (`Ctrl + Clique`), quebras de linha `LF` e `CRLF`, e minimapa interativo.
 - **Personalização sóbria:** seletor de cor de destaque (`Ctrl + ,`) e paleta de alto contraste.
@@ -151,6 +152,7 @@ Pressione `F1` no aplicativo para visualizar o mapa completo de atalhos. Os coma
 |---|---|
 | `Ctrl + S` | Salvar arquivo ativo |
 | `Ctrl + Shift + P` | Pré-visualizar e exportar documento para PDF |
+| `Ctrl + Alt + A` | Inserir bloco de assinatura digital (` ```assinatura `) |
 | `Ctrl + P` | Busca rápida de arquivos (Quick Open) |
 | `F11` ou `Alt + Z` | Alternar Modo Foco / Zen |
 | `Ctrl + \` | Alternar visibilidade da barra lateral |
