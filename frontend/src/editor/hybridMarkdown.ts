@@ -17,6 +17,7 @@ import {
 } from '@codemirror/view';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { extractFencedDiagramInfo } from './diagramWidget';
+import { extractFencedSignatureInfo } from './signatureBlock';
 import {
   copyRawTableText,
   createInteractiveTable,
@@ -360,7 +361,11 @@ function buildHybridMarkdownDecorations(view: EditorView): DecorationSet {
                 break;
               }
             }
-            if (!diagramActiveLine && extractFencedDiagramInfo(state, node.node)) {
+            if (
+              !diagramActiveLine &&
+              (extractFencedDiagramInfo(state, node.node) ||
+                extractFencedSignatureInfo(state, node.node))
+            ) {
               return false;
             }
 

@@ -85,6 +85,9 @@ function cleanKey(raw: string): string {
 
 function normalizeKeyName(raw: string): string {
     const cleaned = cleanKey(raw);
+    if (cleaned.length === 4 && cleaned.startsWith("key") && cleaned[3] >= "a" && cleaned[3] <= "z") {
+        return cleaned.slice(3);
+    }
     return KEY_ALIASES[cleaned] ?? cleaned;
 }
 

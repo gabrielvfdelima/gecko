@@ -2,6 +2,7 @@ import { parser as baseMarkdownParser, GFM } from '@lezer/markdown';
 import { SyntaxNode } from '@lezer/common';
 import { detectDiagramBlock, renderDiagram } from '../editor/topologyRenderer';
 import { getTableWidthKey, ParsedMarkdownTable, parseMarkdownTable } from '../editor/tableViewer';
+import { isSignatureBlockLang, parseSignatureBlock, SignatureBlockData } from '../editor/signatureBlock';
 import { ActiveLayer, pushLayer } from '../keyboard';
 import {
   drawCanvasTableSection,
@@ -50,11 +51,27 @@ interface TextAnnot {
   text: string;
 }
 
+export interface PdfFormField {
+  fieldName: string;
+  tooltip: string;
+  previewPlaceholder: string;
+  x: number;
+  yFromTop: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  fontRef: 'Helv' | 'HelvOb';
+  textColorHex: string;
+  borderHex: string;
+  bgHex: string;
+}
+
 interface RenderedPdfPage {
   canvas: HTMLCanvasElement;
   widthPt: number;
   heightPt: number;
   annotations: TextAnnot[];
+  formFields: PdfFormField[];
 }
 
 type DocBlock =
@@ -65,6 +82,7 @@ type DocBlock =
   | { type: 'hr' }
   | { type: 'code'; lang: string; lines: string[] }
   | { type: 'diagram'; lang: string; body: string; label: string }
+  | { type: 'signature'; data: SignatureBlockData }
   | { type: 'table'; parsed: ParsedMarkdownTable; widthKey: string };
 
 interface PdfListItem {
@@ -222,6 +240,10 @@ export function parseMarkdownBlocksForPdf(markdownText: string): DocBlock[] {
       }
       case 'FencedCode': {
         const { lang, body } = extractFencedCode(node, source);
+        if (isSignatureBlockLang(lang)) {
+          blocks.push({ type: 'signature', data: parseSignatureBlock(body) });
+          break;
+        }
         const det = detectDiagramBlock(lang, body);
         if (det) {
           blocks.push({ type: 'diagram', lang, body, label: det.label });
@@ -363,6 +385,7 @@ export async function renderMarkdownToPdfPages(
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
     annotations: TextAnnot[];
+    formFields: PdfFormField[];
   }> = [];
 
   let curPageIdx = -1;
@@ -380,7 +403,7 @@ export async function renderMarkdownToPdfPages(
     ctx.fillStyle = palette.bgPage;
     ctx.fillRect(0, 0, spec.widthPt, spec.heightPt);
 
-    pages.push({ canvas, ctx, annotations: [] });
+    pages.push({ canvas, ctx, annotations: [], formFields: [] });
     curPageIdx = pages.length - 1;
     cursorY = spec.marginTop;
   };
@@ -389,6 +412,8 @@ export async function renderMarkdownToPdfPages(
 
   const curCtx = () => pages[curPageIdx].ctx;
   const curAnnots = () => pages[curPageIdx].annotations;
+  const curFormFields = () => pages[curPageIdx].formFields;
+  let signatureCounter = 0;
 
   const mapWrappedAnnotations = (wrapped: WrappedLine[], x: number, topY: number, lineH: number, fontSize: number) => {
     const target = curAnnots();
@@ -779,6 +804,178 @@ export async function renderMarkdownToPdfPages(
         }
       }
       cursorY += 10;
+      continue;
+    }
+
+    if (block.type === 'signature') {
+      signatureCounter += 1;
+      const sigIdx = signatureCounter;
+
+      const termSpec: FontStyleSpec = {
+        size: 10.5,
+        lineHeight: 15,
+        sansFamily: palette.fontSans,
+        monoFamily: palette.fontMono,
+        defaultColor: palette.textPrimary,
+      };
+      // Render concordance statement in italic just like the reference template
+      const termWrapped = wrapInlineRuns(
+        curCtx(),
+        [{ kind: 'italic', text: block.data.texto }],
+        contentW,
+        termSpec
+      );
+
+      const centerX = spec.marginX + contentW / 2;
+      const ruleW = Math.min(256, Math.round(contentW * 0.52));
+      const fieldBoxW = Math.max(ruleW, Math.min(320, Math.round(contentW * 0.64)));
+      const govSpaceH = 66; // Reserved blank space above the line for the gov.br stamp
+      const nameSize = 10.5;
+      const nameLineH = 15;
+      const roleSize = 10;
+      const roleLineH = 14;
+
+      const nomeSpec: FontStyleSpec = {
+        size: nameSize,
+        lineHeight: nameLineH,
+        sansFamily: palette.fontSans,
+        monoFamily: palette.fontMono,
+        defaultColor: palette.textPrimary,
+      };
+      const roleSpec: FontStyleSpec = {
+        size: roleSize,
+        lineHeight: roleLineH,
+        sansFamily: palette.fontSans,
+        monoFamily: palette.fontMono,
+        defaultColor: palette.textPrimary,
+      };
+
+      const wrappedNome = block.data.nome
+        ? wrapInlineRuns(curCtx(), [{ kind: 'italic', text: block.data.nome }], contentW - 24, nomeSpec)
+        : [];
+      const wrappedCargo = block.data.cargo
+        ? wrapInlineRuns(curCtx(), [{ kind: 'text', text: block.data.cargo }], contentW - 24, roleSpec)
+        : [];
+
+      const nomeAreaH = block.data.nome ? Math.max(16, wrappedNome.length * nameLineH) : 18;
+      const cargoAreaH = block.data.cargo ? Math.max(15, wrappedCargo.length * roleLineH) : 17;
+
+      const totalBlockH =
+        10 +
+        termWrapped.length * termSpec.lineHeight +
+        govSpaceH +
+        1 +
+        6 +
+        nomeAreaH +
+        3 +
+        cargoAreaH +
+        8;
+
+      ensureHeightOrBreak(totalBlockH);
+      cursorY += 10;
+
+      // 1. Italic agreement statement aligned left
+      drawWrappedLines(curCtx(), termWrapped, spec.marginX, cursorY, contentW, 'left', termSpec, palette);
+      mapWrappedAnnotations(termWrapped, spec.marginX, cursorY, termSpec.lineHeight, termSpec.size);
+      cursorY += termWrapped.length * termSpec.lineHeight;
+
+      // 2. Clean open space above the line for the gov.br electronic signature
+      cursorY += govSpaceH;
+
+      // 3. Centered horizontal signature rule
+      const ruleX = centerX - ruleW / 2;
+      curCtx().fillStyle = palette.textMuted;
+      curCtx().fillRect(ruleX, cursorY, ruleW, 0.85);
+      cursorY += 7;
+
+      const fieldBg = palette.mode === 'light' ? '#F8FAFC' : palette.bgElevated;
+      const fieldBorder = palette.mode === 'light' ? '#9CA3AF' : palette.textMuted;
+
+      // 4. Reviewer Full Name (drawn italic centered, OR AcroForm fillable field if empty)
+      if (block.data.nome) {
+        drawWrappedLines(
+          curCtx(),
+          wrappedNome,
+          spec.marginX + 12,
+          cursorY,
+          contentW - 24,
+          'center',
+          nomeSpec,
+          palette
+        );
+        for (let i = 0; i < wrappedNome.length; i++) {
+          const line = wrappedNome[i];
+          const lineTxt = line.segments.map((s) => s.text).join('').trim();
+          if (!lineTxt) continue;
+          curAnnots().push({
+            x: centerX - line.width / 2,
+            yFromTop: cursorY + i * nameLineH + nameLineH * 0.72,
+            fontSize: nameSize,
+            width: Math.max(4, line.width),
+            text: lineTxt,
+          });
+        }
+      } else {
+        curFormFields().push({
+          fieldName: `assinatura_${sigIdx}_nome`,
+          tooltip: 'Nome completo do revisor',
+          previewPlaceholder: 'Nome completo do revisor',
+          x: centerX - fieldBoxW / 2,
+          yFromTop: cursorY,
+          width: fieldBoxW,
+          height: nomeAreaH,
+          fontSize: nameSize,
+          fontRef: 'HelvOb',
+          textColorHex: palette.textPrimary,
+          borderHex: fieldBorder,
+          bgHex: fieldBg,
+        });
+      }
+      cursorY += nomeAreaH + 3;
+
+      // 5. Reviewer Role / Title (drawn regular centered, OR AcroForm fillable field if empty)
+      if (block.data.cargo) {
+        drawWrappedLines(
+          curCtx(),
+          wrappedCargo,
+          spec.marginX + 12,
+          cursorY,
+          contentW - 24,
+          'center',
+          roleSpec,
+          palette
+        );
+        for (let i = 0; i < wrappedCargo.length; i++) {
+          const line = wrappedCargo[i];
+          const lineTxt = line.segments.map((s) => s.text).join('').trim();
+          if (!lineTxt) continue;
+          curAnnots().push({
+            x: centerX - line.width / 2,
+            yFromTop: cursorY + i * roleLineH + roleLineH * 0.72,
+            fontSize: roleSize,
+            width: Math.max(4, line.width),
+            text: lineTxt,
+          });
+        }
+      } else {
+        curFormFields().push({
+          fieldName: `assinatura_${sigIdx}_cargo`,
+          tooltip: 'Cargo ou função do revisor',
+          previewPlaceholder: 'Cargo / Função do revisor',
+          x: centerX - fieldBoxW / 2,
+          yFromTop: cursorY,
+          width: fieldBoxW,
+          height: cargoAreaH,
+          fontSize: roleSize,
+          fontRef: 'Helv',
+          textColorHex: palette.textPrimary,
+          borderHex: fieldBorder,
+          bgHex: fieldBg,
+        });
+      }
+
+      cursorY += cargoAreaH + 12;
+      continue;
     }
   }
 
@@ -808,6 +1005,7 @@ export async function renderMarkdownToPdfPages(
     widthPt: spec.widthPt,
     heightPt: spec.heightPt,
     annotations: p.annotations,
+    formFields: p.formFields,
   }));
 }
 
@@ -914,15 +1112,45 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
+function cssColorToPdfRgb(color: string, fallback: [number, number, number]): string {
+  const s = (color || '').trim();
+  if (s.startsWith('#')) {
+    const hex = s.slice(1);
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16) / 255;
+      const g = parseInt(hex.slice(2, 4), 16) / 255;
+      const b = parseInt(hex.slice(4, 6), 16) / 255;
+      if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+        return `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)}`;
+      }
+    } else if (hex.length === 3) {
+      const r = parseInt(hex[0] + hex[0], 16) / 255;
+      const g = parseInt(hex[1] + hex[1], 16) / 255;
+      const b = parseInt(hex[2] + hex[2], 16) / 255;
+      if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+        return `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)}`;
+      }
+    }
+  }
+  const m = s.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (m) {
+    const r = Math.min(255, Math.max(0, Number(m[1]))) / 255;
+    const g = Math.min(255, Math.max(0, Number(m[2]))) / 255;
+    const b = Math.min(255, Math.max(0, Number(m[3]))) / 255;
+    return `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)}`;
+  }
+  return `${fallback[0].toFixed(3)} ${fallback[1].toFixed(3)} ${fallback[2].toFixed(3)}`;
+}
+
 export function compilePdfBinary(pages: RenderedPdfPage[]): Uint8Array {
-  // Object numbering:
-  // 1: Catalog
-  // 2: Pages
-  // 3: Shared Helvetica WinAnsi Font
-  // Per page i (0..N-1):
-  //   pageObjId    = 4 + i * 3
-  //   imageObjId   = 5 + i * 3
-  //   contentObjId = 6 + i * 3
+  // Object numbering without forms:
+  // 1: Catalog, 2: Pages, 3: Helvetica (/F1)
+  // Per page i (0..N-1): 4 + i*3 (Page), +1 (Image), +2 (Content)
+  // Object numbering with AcroForm interactive fields:
+  // 1: Catalog (+ /AcroForm 4 0 R), 2: Pages, 3: Helvetica (/F1, /Helv),
+  // 4: AcroForm Dictionary, 5: Helvetica-Oblique (/HelvOb)
+  // Per page i (0..N-1): 6 + i*3 (Page), +1 (Image), +2 (Content)
+  // Widgets: starting at 6 + N*3
   const encoder = new TextEncoder();
   const segments: Uint8Array[] = [];
   const offsets: number[] = [0]; // 1-based object offsets; entry 0 unused
@@ -942,13 +1170,41 @@ export function compilePdfBinary(pages: RenderedPdfPage[]): Uint8Array {
     pushStr('\nendobj\n');
   };
 
+  const widgetEntries: Array<{
+    widgetId: number;
+    pageObjId: number;
+    page: RenderedPdfPage;
+    field: PdfFormField;
+  }> = [];
+
+  const totalFormFields = pages.reduce((acc, p) => acc + (p.formFields?.length ?? 0), 0);
+  const hasForms = totalFormFields > 0;
+  const basePageObjId = hasForms ? 6 : 4;
+  const widgetStartId = basePageObjId + pages.length * 3;
+  const pageWidgetIds: number[][] = pages.map(() => []);
+
+  let nextWidgetId = widgetStartId;
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i];
+    const pObjId = basePageObjId + i * 3;
+    for (const f of p.formFields ?? []) {
+      const wId = nextWidgetId++;
+      pageWidgetIds[i].push(wId);
+      widgetEntries.push({ widgetId: wId, pageObjId: pObjId, page: p, field: f });
+    }
+  }
+
   pushStr('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
 
   beginObj(1);
-  pushStr('<< /Type /Catalog /Pages 2 0 R >>');
+  if (hasForms) {
+    pushStr('<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>');
+  } else {
+    pushStr('<< /Type /Catalog /Pages 2 0 R >>');
+  }
   endObj();
 
-  const pageKidsRefs = pages.map((_, idx) => `${4 + idx * 3} 0 R`).join(' ');
+  const pageKidsRefs = pages.map((_, idx) => `${basePageObjId + idx * 3} 0 R`).join(' ');
   beginObj(2);
   pushStr(`<< /Type /Pages /Kids [${pageKidsRefs}] /Count ${pages.length} >>`);
   endObj();
@@ -957,20 +1213,38 @@ export function compilePdfBinary(pages: RenderedPdfPage[]): Uint8Array {
   pushStr('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   endObj();
 
+  if (hasForms) {
+    const fieldRefs = widgetEntries.map((w) => `${w.widgetId} 0 R`).join(' ');
+    beginObj(4);
+    pushStr(
+      `<< /Fields [${fieldRefs}] /NeedAppearances true /DA (/Helv 10.5 Tf 0 0 0 rg) ` +
+        '/DR << /Font << /Helv 3 0 R /HelvOb 5 0 R >> >> >>'
+    );
+    endObj();
+
+    beginObj(5);
+    pushStr('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>');
+    endObj();
+  }
+
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i];
-    const pageObjId = 4 + i * 3;
-    const imgObjId = 5 + i * 3;
-    const contentObjId = 6 + i * 3;
+    const pageObjId = basePageObjId + i * 3;
+    const imgObjId = pageObjId + 1;
+    const contentObjId = pageObjId + 2;
 
     const jpegBytes = base64ToUint8Array(canvasToBase64(page.canvas, 'jpeg'));
     const streamBytes = buildTextOverlayStream(page);
+    const annotsClause =
+      pageWidgetIds[i].length > 0
+        ? ` /Annots [${pageWidgetIds[i].map((id) => `${id} 0 R`).join(' ')}]`
+        : '';
 
     beginObj(pageObjId);
     pushStr(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.widthPt.toFixed(2)} ${page.heightPt.toFixed(2)}] ` +
         `/Resources << /Font << /F1 3 0 R >> /XObject << /Im1 ${imgObjId} 0 R >> >> ` +
-        `/Contents ${contentObjId} 0 R >>`
+        `/Contents ${contentObjId} 0 R${annotsClause} >>`
     );
     endObj();
 
@@ -990,7 +1264,33 @@ export function compilePdfBinary(pages: RenderedPdfPage[]): Uint8Array {
     endObj();
   }
 
-  const totalObjects = 4 + pages.length * 3;
+  for (const w of widgetEntries) {
+    const { widgetId, pageObjId, page, field } = w;
+    const x1 = field.x;
+    const x2 = field.x + field.width;
+    const y1 = Math.max(4, page.heightPt - (field.yFromTop + field.height));
+    const y2 = Math.max(y1 + 8, page.heightPt - field.yFromTop);
+    const textRgb = cssColorToPdfRgb(field.textColorHex, [0.12, 0.14, 0.16]);
+    const borderRgb = cssColorToPdfRgb(field.borderHex, [0.61, 0.64, 0.69]);
+    const bgRgb = cssColorToPdfRgb(field.bgHex, [0.97, 0.98, 0.99]);
+    const tooltipBytes = new Uint8Array(unicodeToWinAnsiBytes(field.tooltip));
+
+    beginObj(widgetId);
+    pushStr(
+      `<< /Type /Annot /Subtype /Widget /FT /Tx /Ff 0 ` +
+        `/T (${field.fieldName}) /TU (`
+    );
+    pushBytes(tooltipBytes);
+    pushStr(
+      `) /Rect [${x1.toFixed(2)} ${y1.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)}] ` +
+        `/F 4 /Q 1 /P ${pageObjId} 0 R ` +
+        `/DA (/${field.fontRef} ${field.fontSize.toFixed(1)} Tf ${textRgb} rg) ` +
+        `/BS << /W 0.6 /S /S >> /MK << /BC [${borderRgb}] /BG [${bgRgb}] >> >>`
+    );
+    endObj();
+  }
+
+  const totalObjects = basePageObjId + pages.length * 3 + widgetEntries.length;
   const xrefStart = byteCursor;
   pushStr(`xref\n0 ${totalObjects}\n`);
   pushStr('0000000000 65535 f \n');
@@ -1127,7 +1427,35 @@ export function openPdfExportModal(opts: PdfExportOptions): void {
         const sheet = document.createElement('div');
         sheet.className = 'gecko-pdf-sheet';
 
-        const displayCanvas = p.canvas;
+        let displayCanvas = p.canvas;
+        if (p.formFields.length > 0) {
+          const previewCanvas = document.createElement('canvas');
+          previewCanvas.width = p.canvas.width;
+          previewCanvas.height = p.canvas.height;
+          const pCtx = previewCanvas.getContext('2d');
+          if (pCtx) {
+            pCtx.drawImage(p.canvas, 0, 0);
+            pCtx.scale(PDF_RENDER_SCALE, PDF_RENDER_SCALE);
+            for (const f of p.formFields) {
+              pCtx.save();
+              pCtx.fillStyle = f.bgHex;
+              pCtx.fillRect(f.x, f.yFromTop, f.width, f.height);
+              pCtx.strokeStyle = f.borderHex;
+              pCtx.lineWidth = 0.7;
+              pCtx.setLineDash([2.5, 2]);
+              pCtx.strokeRect(f.x + 0.35, f.yFromTop + 0.35, f.width - 0.7, f.height - 0.7);
+              pCtx.restore();
+
+              pCtx.font = `${f.fontRef === 'HelvOb' ? 'italic ' : ''}${Math.max(8, f.fontSize - 1)}px sans-serif`;
+              pCtx.fillStyle = f.borderHex;
+              pCtx.textBaseline = 'middle';
+              const lw = pCtx.measureText(f.previewPlaceholder).width;
+              pCtx.fillText(f.previewPlaceholder, f.x + (f.width - lw) / 2, f.yFromTop + f.height / 2);
+            }
+            displayCanvas = previewCanvas;
+          }
+        }
+
         displayCanvas.className = 'gecko-pdf-sheet-canvas';
         sheet.appendChild(displayCanvas);
 
@@ -1139,9 +1467,14 @@ export function openPdfExportModal(opts: PdfExportOptions): void {
         viewport.appendChild(sheet);
       });
 
+      const totalFields = pages.reduce((acc, p) => acc + p.formFields.length, 0);
       const fmtLabel = currentFormat === 'a4' ? 'A4' : 'Carta';
       const themeLabel = currentTheme === 'light' ? 'Claro' : 'Escuro';
-      metaSpan.textContent = `${opts.fileName} · ${pages.length} ${pages.length === 1 ? 'página' : 'páginas'} · ${fmtLabel} · ${themeLabel}`;
+      const fieldsLabel =
+        totalFields > 0
+          ? ` · ${totalFields} ${totalFields === 1 ? 'campo preenchível' : 'campos preenchíveis'}`
+          : '';
+      metaSpan.textContent = `${opts.fileName} · ${pages.length} ${pages.length === 1 ? 'página' : 'páginas'} · ${fmtLabel} · ${themeLabel}${fieldsLabel}`;
       saveBtn.disabled = false;
     } catch (err) {
       if (seq !== renderSeq) return;

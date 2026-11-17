@@ -328,6 +328,12 @@ export const GECKO_SHORTCUT_SECTIONS: ShortcutSection[] = [
                 description: "Alterna prefixo > com escape ergonômico no Enter",
             },
             {
+                id: "insert-signature-block",
+                label: "Inserir bloco de assinatura digital...",
+                keys: ["Ctrl + Alt + A"],
+                description: "Insere bloco ```assinatura com campos preenchíveis no PDF",
+            },
+            {
                 id: "edit-move-line",
                 label: "Mover linha / seleção para cima ou baixo",
                 keys: ["Alt + ↑", "Alt + ↓"],

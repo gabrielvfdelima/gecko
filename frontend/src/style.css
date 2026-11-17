@@ -3108,3 +3108,117 @@ button.shortcut-row.action-row:focus-visible kbd {
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
+
+/* ==========================================================================
+   Signature Block Live Preview Card & Quick-Insert Modal
+   ========================================================================== */
+
+.cm-md-signature-card {
+  margin: 10px 0;
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--accent-primary);
+  border-radius: 0px;
+  background-color: var(--bg-surface);
+  overflow: hidden;
+  user-select: none;
+}
+
+.cm-md-signature-body {
+  padding: 16px 20px 18px;
+  background-color: var(--bg-surface);
+  cursor: pointer;
+}
+
+.cm-md-signature-term {
+  margin: 0 0 14px 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--text-primary);
+  text-align: left;
+  user-select: text;
+}
+
+.cm-md-signature-stamp-slot {
+  width: min(300px, 80%);
+  height: 54px;
+  margin: 0 auto 10px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 0px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.cm-md-signature-sign-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-align: center;
+}
+
+.cm-md-signature-rule {
+  width: min(260px, 68%);
+  height: 1px;
+  background-color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.cm-md-signature-name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-primary);
+  line-height: 1.4;
+  user-select: text;
+}
+
+.cm-md-signature-role {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  user-select: text;
+}
+
+.cm-md-signature-name.is-fillable,
+.cm-md-signature-role.is-fillable {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 10px;
+  margin-top: 2px;
+  border: 1px dashed var(--border-subtle);
+  background-color: var(--bg-workbench);
+}
+
+.gecko-signature-modal-overlay {
+  z-index: 10050;
+  align-items: center;
+  padding-top: 0;
+}
+
+.gecko-signature-modal-panel {
+  width: 520px;
+}
+
+.gecko-signature-modal-desc {
+  margin: 0 0 14px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.gecko-signature-textarea {
+  height: auto;
+  min-height: 54px;
+  padding: 7px 10px;
+  line-height: 1.45;
+  resize: vertical;
+}

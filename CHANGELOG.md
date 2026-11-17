@@ -2,6 +2,21 @@
 
 Todas as mudanças notáveis do **Gecko** são documentadas neste arquivo.
 
+## [v1.3.0] - 2026-11-17
+
+### Adicionado
+- **Bloco de Assinatura Digital do Revisor (` ```assinatura `):**
+  - Nova sintaxe cercada GFM (`assinatura` / `signature`) com campos opcionais `nome:`, `cargo:` e `texto:`.
+  - Card de Live Preview no editor exibindo o termo de concordância em itálico, espaço reservado para assinatura eletrônica **gov.br**, linha de assinatura centralizada, nome completo e cargo (com alternância para o Markdown bruto ao entrar no bloco, dar duplo clique ou clicar em **Editar**).
+  - Inserção rápida via atalho `Ctrl + Alt + A` ou menu de contexto do editor (**Inserir Bloco de Assinatura...**), com modal leve permitindo preencher Nome, Cargo e Mensagem personalizada (ou confirmar em branco com `Enter`).
+  - Exportação PDF com **campos AcroForm (`/FT /Tx`) preenchíveis nativos** quando `nome` e/ou `cargo` são deixados vazios no Markdown (alinhamento centralizado `/Q 1`, fontes `/HelvOb` itálica para nome e `/Helv` regular para cargo, `/NeedAppearances true`, flag de impressão `/F 4` e preservação do bloco inteiro na mesma página).
+- **Remover Todos os Workspaces:**
+  - Nova ação **Remover Todos os Workspaces** no menu do botão de workspaces da sidebar, no menu de contexto dos cabeçalhos de workspace e na área vazia da árvore de arquivos.
+  - Remoção paralela dos watchers no backend Go (`RemoveWorkspaceRoot`), fechamento seguro das abas dos workspaces (preservando arquivos no disco) e verificação de alterações não salvas antes de concluir.
+
+### Corrigido
+- Normalização de códigos físicos de tecla (`KeyA..KeyZ`) em `keybindings.ts`, garantindo o funcionamento de atalhos com `Ctrl + Alt` independentemente do layout de teclado.
+
 ## [v1.2.0] - 2026-11-13
 
 ### Adicionado

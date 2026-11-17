@@ -79,6 +79,7 @@ import { createColorConfigModal } from "./theme/colorModal";
 import { createShortcutsModal } from "./shortcuts/shortcutsModal";
 import { registerExportHost, sanitizeFileStem } from "./export/exportUtils";
 import { openPdfExportModal } from "./export/pdfExporter";
+import { openInsertSignatureModal } from "./editor/signatureBlock";
 
 type SortMode = "name" | "modTime" | "birthTime" | "manual";
 type SortDirection = "asc" | "desc";
@@ -380,6 +381,48 @@ function openPdfForActiveTab(): void {
     openPdfExportModal({
         markdown: info.markdown,
         fileName: info.fileName,
+    });
+}
+
+function openInsertSignatureForActiveEditor(): void {
+    if (!editorView) {
+        showTemporaryStatus(
+            "Abra um documento Markdown para inserir o bloco de assinatura.",
+        );
+        return;
+    }
+    const targetView = editorView;
+    openInsertSignatureModal({
+        restoreFocusTo: targetView.contentDOM,
+        onInsert: (snippet: string) => {
+            if (!targetView || targetView !== editorView) return;
+            const sel = targetView.state.selection.main;
+            const lineBefore = targetView.state.doc.lineAt(sel.from);
+            const hasTextBefore =
+                sel.from > lineBefore.from &&
+                targetView.state
+                    .sliceDoc(lineBefore.from, sel.from)
+                    .trim().length > 0;
+            const lineAfter = targetView.state.doc.lineAt(sel.to);
+            const hasTextAfter =
+                sel.to < lineAfter.to &&
+                targetView.state
+                    .sliceDoc(sel.to, lineAfter.to)
+                    .trim().length > 0;
+
+            const prefix = hasTextBefore ? "\n\n" : "";
+            const suffix = hasTextAfter ? "\n\n" : "\n";
+            const inserted = `${prefix}${snippet}${suffix}`;
+            const endCursor = sel.from + inserted.length;
+
+            targetView.dispatch({
+                changes: { from: sel.from, to: sel.to, insert: inserted },
+                selection: EditorSelection.cursor(endCursor),
+                scrollIntoView: true,
+            });
+            targetView.focus();
+            showTemporaryStatus("Bloco de assinatura inserido", 3000);
+        },
     });
 }
 
@@ -1098,6 +1141,45 @@ function createWorkspaceActionButton(
     return btn;
 }
 
+function buildWorkspaceHeaderContextOptions(
+    wsRoot: string,
+    sortAnchorEl: HTMLElement,
+): ContextMenuOption[] {
+    const options: ContextMenuOption[] = [
+        {
+            label: "Novo Arquivo .md",
+            action: () => void startCreateEntry(false, wsRoot),
+        },
+        {
+            label: "Nova Pasta",
+            action: () => void startCreateEntry(true, wsRoot),
+        },
+        { separator: true },
+        {
+            label: "Ordenar Arquivos...",
+            action: () => openSortMenu(wsRoot, sortAnchorEl),
+        },
+        {
+            label: "Atualizar Workspace",
+            action: () => void refreshWorkspaceTree(wsRoot, true),
+        },
+        { separator: true },
+        {
+            label: "Remover Workspace",
+            danger: true,
+            action: () => requestRemoveWorkspace(wsRoot),
+        },
+    ];
+    if (workspaces.length > 1) {
+        options.push({
+            label: "Remover Todos os Workspaces",
+            danger: true,
+            action: () => requestRemoveAllWorkspaces(),
+        });
+    }
+    return options;
+}
+
 function buildWorkspaceSectionElement(ws: WorkspaceEntry): HTMLElement {
     const section = document.createElement("div");
     section.className = "tree-workspace-section";
@@ -1205,31 +1287,11 @@ function buildWorkspaceSectionElement(ws: WorkspaceEntry): HTMLElement {
         fileTreeEl.focus();
         renderFileTree();
         updateStatusBar();
-        showContextMenu(e.clientX, e.clientY, [
-            {
-                label: "Novo Arquivo .md",
-                action: () => void startCreateEntry(false, ws.root),
-            },
-            {
-                label: "Nova Pasta",
-                action: () => void startCreateEntry(true, ws.root),
-            },
-            { separator: true },
-            {
-                label: "Ordenar Arquivos...",
-                action: () => openSortMenu(ws.root, wsHeader),
-            },
-            {
-                label: "Atualizar Workspace",
-                action: () => void refreshWorkspaceTree(ws.root, true),
-            },
-            { separator: true },
-            {
-                label: "Remover Workspace",
-                danger: true,
-                action: () => requestRemoveWorkspace(ws.root),
-            },
-        ]);
+        showContextMenu(
+            e.clientX,
+            e.clientY,
+            buildWorkspaceHeaderContextOptions(ws.root, wsHeader),
+        );
     });
 
     section.appendChild(wsHeader);
@@ -2051,39 +2113,44 @@ function startTabInlineRename(tabPath: string): void {
     renderTabs();
 }
 
-// Remove Workspace from Sidebar (Does NOT delete any files on disk)
-async function performRemoveWorkspace(wsRoot: string): Promise<void> {
-    const ws = findWorkspaceByRoot(wsRoot);
-    if (!ws) return;
-    const wsName = ws.tree?.name || getBaseName(wsRoot);
+function isPathInWorkspaceRoots(filePath: string, wsRoots: string[]): boolean {
+    return wsRoots.some(
+        (root) => filePath === root || filePath.startsWith(root + "/"),
+    );
+}
 
-    // Close all open tabs belonging to this workspace
+// Remove Workspace(s) from Sidebar (Does NOT delete any files on disk)
+async function performRemoveWorkspaces(
+    wsRoots: string[],
+    statusMessage: string,
+): Promise<void> {
+    if (wsRoots.length === 0) return;
+
+    const rootSet = new Set(wsRoots);
     const tabsToClose = openTabs
-        .filter((t) => t.path === wsRoot || t.path.startsWith(wsRoot + "/"))
+        .filter((t) => isPathInWorkspaceRoots(t.path, wsRoots))
         .map((t) => t.path);
     for (const p of tabsToClose) {
         forceCloseTab(p);
     }
 
-    try {
-        await RemoveWorkspaceRoot(wsRoot);
-    } catch {
-        // Ignore if running outside Wails runtime
-    }
+    await Promise.all(
+        wsRoots.map((root) => RemoveWorkspaceRoot(root).catch(() => {})),
+    );
 
-    workspaces = workspaces.filter((w) => w.root !== wsRoot);
+    workspaces = workspaces.filter((w) => !rootSet.has(w.root));
 
     const dirsToRemove: string[] = [];
     expandedDirs.forEach((d) => {
-        if (d === wsRoot || d.startsWith(wsRoot + "/")) {
+        if (isPathInWorkspaceRoots(d, wsRoots)) {
             dirsToRemove.push(d);
         }
     });
     dirsToRemove.forEach((d) => expandedDirs.delete(d));
 
     if (
-        selectedTreePath === wsRoot ||
-        selectedTreePath.startsWith(wsRoot + "/")
+        selectedTreePath &&
+        isPathInWorkspaceRoots(selectedTreePath, wsRoots)
     ) {
         selectedTreePath = workspaces[0]?.root || "";
         selectedTreeIsDir = Boolean(selectedTreePath);
@@ -2092,97 +2159,133 @@ async function performRemoveWorkspace(wsRoot: string): Promise<void> {
     await persistAppSettings();
     renderFileTree();
     updateStatusBar();
-    showStatusMessage(
-        `Workspace "${wsName}" removido da sidebar (arquivos preservados no disco)`,
-    );
+    showStatusMessage(statusMessage);
+}
+
+function requestRemoveWorkspacesModal(opts: {
+    wsRoots: string[];
+    title: string;
+    message: string;
+    confirmLabel: string;
+    dirtyMessage: (dirtyNames: string) => string;
+    statusMessage: string;
+}): void {
+    if (opts.wsRoots.length === 0) return;
+    const restoreSidebarFocus = document.activeElement === fileTreeEl;
+    const restoreFocusIfNeeded = () => {
+        if (restoreSidebarFocus) fileTreeEl.focus();
+    };
+
+    openModal(opts.title, opts.message, [
+        {
+            label: "Cancelar",
+            className: "action-btn",
+            autoFocus: true,
+            onClick: () => {
+                closeModal();
+                restoreFocusIfNeeded();
+            },
+        },
+        {
+            label: opts.confirmLabel,
+            className: "action-btn danger",
+            onClick: () => {
+                closeModal();
+                const dirtyWsTabs = openTabs.filter(
+                    (t) =>
+                        t.isDirty &&
+                        isPathInWorkspaceRoots(t.path, opts.wsRoots),
+                );
+
+                if (dirtyWsTabs.length === 0) {
+                    void performRemoveWorkspaces(
+                        opts.wsRoots,
+                        opts.statusMessage,
+                    ).then(restoreFocusIfNeeded);
+                    return;
+                }
+
+                const dirtyNames = dirtyWsTabs.map((t) => t.name).join(", ");
+                openModal(
+                    "Abas com Alterações Não Salvas",
+                    opts.dirtyMessage(dirtyNames),
+                    [
+                        {
+                            label: "Cancelar",
+                            className: "action-btn",
+                            autoFocus: true,
+                            onClick: () => {
+                                closeModal();
+                                restoreFocusIfNeeded();
+                            },
+                        },
+                        {
+                            label: "Descartar e Remover",
+                            className: "action-btn danger",
+                            onClick: () => {
+                                closeModal();
+                                void performRemoveWorkspaces(
+                                    opts.wsRoots,
+                                    opts.statusMessage,
+                                ).then(restoreFocusIfNeeded);
+                            },
+                        },
+                        {
+                            label: "Salvar Tudo e Remover",
+                            className: "action-btn primary",
+                            onClick: async () => {
+                                closeModal();
+                                for (const t of dirtyWsTabs) {
+                                    const ok = await saveTab(t.path);
+                                    if (!ok) return;
+                                }
+                                await performRemoveWorkspaces(
+                                    opts.wsRoots,
+                                    opts.statusMessage,
+                                );
+                                restoreFocusIfNeeded();
+                            },
+                        },
+                    ],
+                );
+            },
+        },
+    ]);
 }
 
 function requestRemoveWorkspace(wsRoot: string): void {
     const ws = findWorkspaceByRoot(wsRoot);
     if (!ws) return;
     const wsName = ws.tree?.name || getBaseName(wsRoot);
-    const restoreSidebarFocus = document.activeElement === fileTreeEl;
 
-    openModal(
-        "Remover Workspace",
-        `Deseja remover o workspace "${wsName}" da barra lateral? Nenhum arquivo ou pasta será apagado do disco rígido.`,
-        [
-            {
-                label: "Cancelar",
-                className: "action-btn",
-                autoFocus: true,
-                onClick: () => {
-                    closeModal();
-                    if (restoreSidebarFocus) fileTreeEl.focus();
-                },
-            },
-            {
-                label: "Remover Workspace",
-                className: "action-btn danger",
-                onClick: () => {
-                    closeModal();
-                    const dirtyWsTabs = openTabs.filter(
-                        (t) =>
-                            t.isDirty &&
-                            (t.path === wsRoot ||
-                                t.path.startsWith(wsRoot + "/")),
-                    );
+    requestRemoveWorkspacesModal({
+        wsRoots: [wsRoot],
+        title: "Remover Workspace",
+        message: `Deseja remover o workspace "${wsName}" da barra lateral? Nenhum arquivo ou pasta será apagado do disco rígido.`,
+        confirmLabel: "Remover Workspace",
+        dirtyMessage: (dirtyNames) =>
+            `O workspace "${wsName}" possui abas abertas com alterações não salvas (${dirtyNames}). Deseja salvar antes de remover o workspace da sidebar?`,
+        statusMessage: `Workspace "${wsName}" removido da sidebar (arquivos preservados no disco)`,
+    });
+}
 
-                    if (dirtyWsTabs.length === 0) {
-                        void performRemoveWorkspace(wsRoot).then(() => {
-                            if (restoreSidebarFocus) fileTreeEl.focus();
-                        });
-                        return;
-                    }
+function requestRemoveAllWorkspaces(): void {
+    if (workspaces.length === 0) return;
+    if (workspaces.length === 1) {
+        requestRemoveWorkspace(workspaces[0].root);
+        return;
+    }
 
-                    const dirtyNames = dirtyWsTabs
-                        .map((t) => t.name)
-                        .join(", ");
-                    openModal(
-                        "Abas com Alterações Não Salvas",
-                        `O workspace "${wsName}" possui abas abertas com alterações não salvas (${dirtyNames}). Deseja salvar antes de remover o workspace da sidebar?`,
-                        [
-                            {
-                                label: "Cancelar",
-                                className: "action-btn",
-                                autoFocus: true,
-                                onClick: () => {
-                                    closeModal();
-                                    if (restoreSidebarFocus) fileTreeEl.focus();
-                                },
-                            },
-                            {
-                                label: "Descartar e Remover",
-                                className: "action-btn danger",
-                                onClick: () => {
-                                    closeModal();
-                                    void performRemoveWorkspace(wsRoot).then(
-                                        () => {
-                                            if (restoreSidebarFocus)
-                                                fileTreeEl.focus();
-                                        },
-                                    );
-                                },
-                            },
-                            {
-                                label: "Salvar Tudo e Remover",
-                                className: "action-btn primary",
-                                onClick: async () => {
-                                    closeModal();
-                                    for (const t of dirtyWsTabs) {
-                                        const ok = await saveTab(t.path);
-                                        if (!ok) return;
-                                    }
-                                    await performRemoveWorkspace(wsRoot);
-                                    if (restoreSidebarFocus) fileTreeEl.focus();
-                                },
-                            },
-                        ],
-                    );
-                },
-            },
-        ],
-    );
+    const roots = workspaces.map((w) => w.root);
+    requestRemoveWorkspacesModal({
+        wsRoots: roots,
+        title: "Remover Todos os Workspaces",
+        message: `Deseja remover todos os ${roots.length} workspaces da barra lateral? Nenhum arquivo ou pasta será apagado do disco rígido.`,
+        confirmLabel: "Remover Todos",
+        dirtyMessage: (dirtyNames) =>
+            `Existem abas abertas com alterações não salvas (${dirtyNames}). Deseja salvar antes de remover todos os workspaces da sidebar?`,
+        statusMessage: `Todos os ${roots.length} workspaces removidos da sidebar (arquivos preservados no disco)`,
+    });
 }
 
 // Delete Entry with Confirmation Modal (used by Top Tab Bar, Left Sidebar, and Delete/Backspace key)
@@ -5265,31 +5368,7 @@ function openSelectedSidebarNodeContextMenu(): void {
         showContextMenu(
             x,
             y,
-            [
-                {
-                    label: "Novo Arquivo .md",
-                    action: () => void startCreateEntry(false, wsRoot),
-                },
-                {
-                    label: "Nova Pasta",
-                    action: () => void startCreateEntry(true, wsRoot),
-                },
-                { separator: true },
-                {
-                    label: "Ordenar Arquivos...",
-                    action: () => openSortMenu(wsRoot, rowEl || fileTreeEl),
-                },
-                {
-                    label: "Atualizar Workspace",
-                    action: () => void refreshWorkspaceTree(wsRoot, true),
-                },
-                { separator: true },
-                {
-                    label: "Remover Workspace",
-                    danger: true,
-                    action: () => requestRemoveWorkspace(wsRoot),
-                },
-            ],
+            buildWorkspaceHeaderContextOptions(wsRoot, rowEl || fileTreeEl),
             fileTreeEl,
         );
         return;
@@ -5548,25 +5627,31 @@ function bindEvents(): void {
         }
         workbenchEl.classList.remove("sidebar-collapsed");
         const rect = btnOpenFolder.getBoundingClientRect();
-        showContextMenu(
-            rect.left,
-            rect.bottom + 4,
-            [
-                {
-                    label: "Abrir Workspace Existente...",
-                    action: () => {
-                        void handleSelectWorkspaceFolder();
-                    },
+        const menuOptions: ContextMenuOption[] = [
+            {
+                label: "Abrir Workspace Existente...",
+                action: () => {
+                    void handleSelectWorkspaceFolder();
                 },
-                {
-                    label: "Criar Novo Workspace...",
-                    action: () => {
-                        void handleCreateFolder();
-                    },
+            },
+            {
+                label: "Criar Novo Workspace...",
+                action: () => {
+                    void handleCreateFolder();
                 },
-            ],
-            btnOpenFolder,
-        );
+            },
+        ];
+        if (workspaces.length > 0) {
+            menuOptions.push(
+                { separator: true },
+                {
+                    label: "Remover Todos os Workspaces",
+                    danger: true,
+                    action: () => requestRemoveAllWorkspaces(),
+                },
+            );
+        }
+        showContextMenu(rect.left, rect.bottom + 4, menuOptions, btnOpenFolder);
     });
     emptyBtnOpenFolder.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -5869,6 +5954,12 @@ function bindEvents(): void {
 
         options.push({ separator: true });
         options.push({
+            label: "Inserir Bloco de Assinatura... (Ctrl+Alt+A)",
+            action: () => {
+                openInsertSignatureForActiveEditor();
+            },
+        });
+        options.push({
             label: "Exportar Documento para PDF... (Ctrl+Shift+P)",
             action: () => {
                 openPdfForActiveTab();
@@ -5999,6 +6090,12 @@ function bindEvents(): void {
             {
                 label: "Atualizar Todos os Workspaces",
                 action: () => void refreshWorkspaceTree(undefined, false),
+            },
+            { separator: true },
+            {
+                label: "Remover Todos os Workspaces",
+                danger: true,
+                action: () => requestRemoveAllWorkspaces(),
             },
         ]);
     });
@@ -6452,6 +6549,22 @@ function bindEvents(): void {
             description: "Criar novo arquivo .md no workspace",
             run: () => {
                 void startCreateEntry(false);
+            },
+        },
+        {
+            key: "Mod-Alt-a",
+            description: "Inserir bloco de assinatura digital",
+            when: () => Boolean(editorView),
+            run: () => {
+                openInsertSignatureForActiveEditor();
+            },
+        },
+        {
+            key: "Ctrl-Alt-a",
+            description: "Inserir bloco de assinatura digital",
+            when: () => Boolean(editorView),
+            run: () => {
+                openInsertSignatureForActiveEditor();
             },
         },
         {
