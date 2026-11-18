@@ -55,6 +55,7 @@ import {
 } from './hybridMarkdown';
 import { markdownDiagramField } from './diagramWidget';
 import { markdownSignatureField } from './signatureBlock';
+import { documentDirFacet, markdownImageField } from './imageViewer';
 import { geckoShortcutsKeymap } from './shortcuts';
 import { getFocusable } from '../keyboard';
 
@@ -69,6 +70,7 @@ export interface EditorCallbacks {
   onDocChanged?: (content: string) => void;
   onStatusChanged?: (status: CursorStatusInfo) => void;
   onStatusMessage?: (msg: string) => void;
+  getDocumentDir?: () => string;
 }
 
 const geckoHighlightStyle = HighlightStyle.define([
@@ -616,6 +618,8 @@ export function createGeckoEditorState(
     markdownTableField,
     markdownDiagramField,
     markdownSignatureField,
+    documentDirFacet.of(callbacks.getDocumentDir ?? (() => '')),
+    markdownImageField,
     linkClickHandler,
     autoLinkExtension,
     createSmartPasteExtension(callbacks.onStatusMessage),

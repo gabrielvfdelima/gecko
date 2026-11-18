@@ -3,6 +3,7 @@ import { SyntaxNode } from '@lezer/common';
 import { detectDiagramBlock, renderDiagram } from '../editor/topologyRenderer';
 import { getTableWidthKey, ParsedMarkdownTable, parseMarkdownTable } from '../editor/tableViewer';
 import { isSignatureBlockLang, parseSignatureBlock, SignatureBlockData } from '../editor/signatureBlock';
+import { parseStandaloneImageRef, resolveImageSourceUrl } from '../editor/imageViewer';
 import { ActiveLayer, pushLayer } from '../keyboard';
 import {
   drawCanvasTableSection,
@@ -33,6 +34,7 @@ export interface PdfExportOptions {
   theme?: ExportThemeMode;
   pageFormat?: PdfPageFormat;
   includeFooter?: boolean;
+  docDir?: string;
 }
 
 interface PdfPageSpec {
@@ -82,6 +84,14 @@ type DocBlock =
   | { type: 'hr' }
   | { type: 'code'; lang: string; lines: string[] }
   | { type: 'diagram'; lang: string; body: string; label: string }
+  | {
+      type: 'image';
+      alt: string;
+      src: string;
+      title?: string;
+      widthHint?: number;
+      heightHint?: number;
+    }
   | { type: 'signature'; data: SignatureBlockData }
   | { type: 'table'; parsed: ParsedMarkdownTable; widthKey: string };
 
@@ -292,7 +302,36 @@ export function parseMarkdownBlocksForPdf(markdownText: string): DocBlock[] {
         }
         break;
       }
+      case 'HTMLBlock': {
+        const imgRef = parseStandaloneImageRef(slice);
+        if (imgRef) {
+          blocks.push({
+            type: 'image',
+            alt: imgRef.alt,
+            src: imgRef.src,
+            title: imgRef.title,
+            widthHint: imgRef.widthHint,
+            heightHint: imgRef.heightHint,
+          });
+          break;
+        }
+        const trimmed = slice.trim();
+        if (trimmed) blocks.push({ type: 'paragraph', text: trimmed });
+        break;
+      }
       case 'Paragraph': {
+        const imgRef = parseStandaloneImageRef(slice);
+        if (imgRef) {
+          blocks.push({
+            type: 'image',
+            alt: imgRef.alt,
+            src: imgRef.src,
+            title: imgRef.title,
+            widthHint: imgRef.widthHint,
+            heightHint: imgRef.heightHint,
+          });
+          break;
+        }
         const text = slice.trim().replace(/\n+/g, ' ');
         if (text) blocks.push({ type: 'paragraph', text });
         break;
@@ -340,6 +379,65 @@ function wrapMonospaceLines(
   return out;
 }
 
+async function loadPdfImageBitmap(
+  rawSrc: string,
+  docDir: string
+): Promise<{ canvas: HTMLCanvasElement; width: number; height: number } | null> {
+  if (typeof document === 'undefined' || typeof Image === 'undefined') {
+    return null;
+  }
+  const resolvedUrl = resolveImageSourceUrl(rawSrc, docDir);
+  if (!resolvedUrl) return null;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const isRemote =
+      resolvedUrl.startsWith('http://') || resolvedUrl.startsWith('https://');
+    if (isRemote) {
+      img.crossOrigin = 'anonymous';
+    }
+
+    let settled = false;
+    const finish = (val: { canvas: HTMLCanvasElement; width: number; height: number } | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(val);
+    };
+
+    const timer = setTimeout(() => finish(null), 4500);
+
+    img.addEventListener('load', () => {
+      try {
+        const natW = Math.max(1, img.naturalWidth || 320);
+        const natH = Math.max(1, img.naturalHeight || 180);
+        const maxSide = 2200;
+        const scale = Math.min(PDF_RENDER_SCALE, maxSide / Math.max(natW, natH));
+        const outW = Math.max(1, Math.round(natW * scale));
+        const outH = Math.max(1, Math.round(natH * scale));
+
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = outW;
+        offCanvas.height = outH;
+        const offCtx = offCanvas.getContext('2d');
+        if (!offCtx) {
+          finish(null);
+          return;
+        }
+        offCtx.drawImage(img, 0, 0, outW, outH);
+        // Probe taint so a remote CORS-restricted image degrades cleanly without breaking PDF export
+        offCtx.getImageData(0, 0, 1, 1);
+        finish({ canvas: offCanvas, width: natW, height: natH });
+      } catch {
+        finish(null);
+      }
+    });
+
+    img.addEventListener('error', () => finish(null));
+    img.src = resolvedUrl;
+  });
+}
+
 export async function renderMarkdownToPdfPages(
   markdownText: string,
   fileName: string,
@@ -347,19 +445,28 @@ export async function renderMarkdownToPdfPages(
     theme: ExportThemeMode;
     pageFormat: PdfPageFormat;
     includeFooter: boolean;
+    docDir?: string;
   }
 ): Promise<RenderedPdfPage[]> {
   const palette = resolveExportPalette(options.theme);
   const spec = PAGE_SPECS[options.pageFormat];
   const contentW = spec.widthPt - spec.marginX * 2;
   const maxBodyY = spec.heightPt - spec.marginBottom - (options.includeFooter ? 14 : 0);
+  const docDir = options.docDir ?? getExportHost().getDefaultDir();
 
   const blocks = parseMarkdownBlocksForPdf(markdownText);
 
-  // Pre-rasterize SVG diagrams at high DPI using target PDF palette
+  // Pre-rasterize SVG diagrams and pre-load images at high DPI using target PDF palette
   const diagramBitmaps = new Map<number, { canvas: HTMLCanvasElement; width: number; height: number }>();
+  const imageBitmaps = new Map<number, { canvas: HTMLCanvasElement; width: number; height: number }>();
+
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
+    if (b.type === 'image') {
+      const bmp = await loadPdfImageBitmap(b.src, docDir);
+      if (bmp) imageBitmaps.set(i, bmp);
+      continue;
+    }
     if (b.type !== 'diagram') continue;
     const rendered = renderDiagram(b.lang, b.body);
     if (!rendered) continue;
@@ -606,6 +713,107 @@ export async function renderMarkdownToPdfPages(
         cursorY += 2.5;
       }
       cursorY += 5;
+      continue;
+    }
+
+    if (block.type === 'image') {
+      const bmp = imageBitmaps.get(bIdx);
+      const captionText = (block.alt || block.title || '').trim();
+      const capSpec: FontStyleSpec = {
+        size: 8.5,
+        lineHeight: 12,
+        sansFamily: palette.fontSans,
+        monoFamily: palette.fontMono,
+        defaultColor: palette.textSecondary,
+      };
+      const capWrapped = captionText
+        ? wrapInlineRuns(curCtx(), parseInlineMarkdownRuns(captionText), contentW - 24, capSpec)
+        : [];
+      const captionH = capWrapped.length > 0 ? capWrapped.length * capSpec.lineHeight + 6 : 0;
+
+      if (bmp) {
+        const pad = 8;
+        const maxImgW = contentW - pad * 2;
+        const maxImgH = spec.heightPt - spec.marginTop - spec.marginBottom - 44 - captionH;
+        const rawPtW = block.widthHint
+          ? Math.min(block.widthHint * 0.75, bmp.width * 0.75)
+          : bmp.width * 0.75;
+        const basePtW = Math.max(12, rawPtW);
+        const basePtH = Math.max(12, (bmp.height / bmp.width) * basePtW);
+        const scaleFit = Math.min(1, maxImgW / basePtW, maxImgH / basePtH);
+        const drawW = Math.max(12, Math.round(basePtW * scaleFit));
+        const drawH = Math.max(12, Math.round(basePtH * scaleFit));
+        const boxH = drawH + pad * 2 + captionH;
+
+        ensureHeightOrBreak(boxH);
+
+        curCtx().fillStyle = palette.bgSurface;
+        curCtx().fillRect(spec.marginX, cursorY, contentW, boxH);
+        curCtx().strokeStyle = palette.borderSubtle;
+        curCtx().lineWidth = 0.8;
+        curCtx().strokeRect(spec.marginX + 0.4, cursorY + 0.4, contentW - 0.8, boxH - 0.8);
+
+        const imgX = spec.marginX + Math.round((contentW - drawW) / 2);
+        const imgY = cursorY + pad;
+        curCtx().drawImage(bmp.canvas, imgX, imgY, drawW, drawH);
+
+        if (capWrapped.length > 0) {
+          const capY = imgY + drawH + 5;
+          drawWrappedLines(
+            curCtx(),
+            capWrapped,
+            spec.marginX + 12,
+            capY,
+            contentW - 24,
+            'center',
+            capSpec,
+            palette
+          );
+          mapWrappedAnnotations(capWrapped, spec.marginX + 12, capY, capSpec.lineHeight, capSpec.size);
+        }
+
+        cursorY += boxH + 10;
+        continue;
+      }
+
+      // Clean industrial fallback card when image is unreachable/unloaded
+      const fallbackText = captionText ? `${captionText} — ${block.src}` : block.src;
+      const fbSpec: FontStyleSpec = {
+        size: 8.5,
+        lineHeight: 12,
+        sansFamily: palette.fontMono,
+        monoFamily: palette.fontMono,
+        defaultColor: palette.textSecondary,
+      };
+      const fbWrapped = wrapInlineRuns(
+        curCtx(),
+        parseInlineMarkdownRuns(`[Imagem: ${fallbackText}]`),
+        contentW - 20,
+        fbSpec
+      );
+      const boxH = Math.max(28, fbWrapped.length * fbSpec.lineHeight + 14);
+      ensureHeightOrBreak(boxH);
+
+      curCtx().fillStyle = palette.bgElevated;
+      curCtx().fillRect(spec.marginX, cursorY, contentW, boxH);
+      curCtx().strokeStyle = palette.borderSubtle;
+      curCtx().lineWidth = 0.8;
+      curCtx().strokeRect(spec.marginX + 0.4, cursorY + 0.4, contentW - 0.8, boxH - 0.8);
+      curCtx().fillStyle = palette.accentPrimary;
+      curCtx().fillRect(spec.marginX, cursorY, 2, boxH);
+
+      drawWrappedLines(
+        curCtx(),
+        fbWrapped,
+        spec.marginX + 10,
+        cursorY + 7,
+        contentW - 20,
+        'left',
+        fbSpec,
+        palette
+      );
+      mapWrappedAnnotations(fbWrapped, spec.marginX + 10, cursorY + 7, fbSpec.lineHeight, fbSpec.size);
+      cursorY += boxH + 8;
       continue;
     }
 
@@ -1417,6 +1625,7 @@ export function openPdfExportModal(opts: PdfExportOptions): void {
         theme: currentTheme,
         pageFormat: currentFormat,
         includeFooter: currentFooter,
+        docDir: opts.docDir,
       });
       if (seq !== renderSeq || !viewport.isConnected) return;
 

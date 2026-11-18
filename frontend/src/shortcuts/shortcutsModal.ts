@@ -1,4 +1,5 @@
-import { GECKO_SHORTCUT_SECTIONS, ShortcutItem, ShortcutSection } from "./shortcutsData";
+import { GECKO_SHORTCUT_SECTIONS, ShortcutItem } from "./shortcutsData";
+import { formatShortcutLabel } from "../keyboard";
 
 export interface ShortcutsModalController {
     bodyEl: HTMLElement;
@@ -50,7 +51,8 @@ export function createShortcutsModal(onClose: () => void): ShortcutsModalControl
         wrap.className = "shortcuts-combo";
 
         // Splits key combination e.g. "Ctrl + Shift + W" or "Ctrl + /"
-        const tokens = keyString.split(/\s*\+\s*/);
+        const formatted = formatShortcutLabel(keyString);
+        const tokens = formatted.split(/\s*\+\s*/);
         for (let i = 0; i < tokens.length; i++) {
             if (i > 0) {
                 const plus = document.createElement("span");
@@ -218,7 +220,9 @@ export function createShortcutsModal(onClose: () => void): ShortcutsModalControl
 
     const tipSpan = document.createElement("span");
     tipSpan.className = "shortcuts-footer-tip";
-    tipSpan.textContent = "Dica: Você pode abrir este mapa a qualquer momento pressionando F1 ou Ctrl + /";
+    tipSpan.textContent = formatShortcutLabel(
+        "Dica: Você pode abrir este mapa a qualquer momento pressionando F1 ou Ctrl + /",
+    );
 
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";

@@ -4,7 +4,7 @@ import {
   Range,
   StateField,
 } from '@codemirror/state';
-import { syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import {
   Decoration,
   DecorationSet,
@@ -12,6 +12,7 @@ import {
   WidgetType,
 } from '@codemirror/view';
 import { SetClipboardText } from '../../wailsjs/go/main/App';
+import { formatShortcutLabel } from '../keyboard';
 import { openDiagramViewerModal } from './diagramModal';
 import {
   detectDiagramBlock,
@@ -257,7 +258,9 @@ export class DiagramWidget extends WidgetType {
     // Viewport & Stage
     const viewport = document.createElement('div');
     viewport.className = 'cm-md-diagram-viewport';
-    viewport.title = 'Arraste para mover · Ctrl+Scroll para zoom · Clique duplo para editar';
+    viewport.title = formatShortcutLabel(
+      'Arraste para mover · Ctrl+Scroll para zoom · Clique duplo para editar'
+    );
 
     const stage = document.createElement('div');
     stage.className = 'cm-md-diagram-stage';
@@ -424,7 +427,7 @@ function buildDiagramDecorations(state: EditorState): DecorationSet {
   }
 
   const decorations: Range<Decoration>[] = [];
-  const tree = syntaxTree(state);
+  const tree = ensureSyntaxTree(state, state.doc.length, 40) ?? syntaxTree(state);
 
   tree.iterate({
     enter: (node) => {
@@ -472,7 +475,11 @@ export const markdownDiagramField = StateField.define<DecorationSet>({
     return buildDiagramDecorations(state);
   },
   update(decorations, tr) {
-    if (tr.docChanged || tr.selection) {
+    if (
+      tr.docChanged ||
+      tr.selection ||
+      syntaxTree(tr.state) !== syntaxTree(tr.startState)
+    ) {
       return buildDiagramDecorations(tr.state);
     }
     return decorations;

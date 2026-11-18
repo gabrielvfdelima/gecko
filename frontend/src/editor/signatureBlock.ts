@@ -1,5 +1,5 @@
-import { EditorSelection, EditorState, Range, StateField } from '@codemirror/state';
-import { syntaxTree } from '@codemirror/language';
+import { EditorSelection, EditorState, Range, StateCommand, StateField } from '@codemirror/state';
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { Decoration, DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 import { ActiveLayer, pushLayer } from '../keyboard';
 import { SetClipboardText } from '../../wailsjs/go/main/App';
@@ -303,7 +303,7 @@ function buildSignatureDecorations(state: EditorState): DecorationSet {
   }
 
   const decorations: Range<Decoration>[] = [];
-  const tree = syntaxTree(state);
+  const tree = ensureSyntaxTree(state, state.doc.length, 40) ?? syntaxTree(state);
 
   tree.iterate({
     enter: (node) => {
@@ -338,13 +338,66 @@ export const markdownSignatureField = StateField.define<DecorationSet>({
     return buildSignatureDecorations(state);
   },
   update(decorations, tr) {
-    if (tr.docChanged || tr.selection) {
+    if (
+      tr.docChanged ||
+      tr.selection ||
+      syntaxTree(tr.state) !== syntaxTree(tr.startState)
+    ) {
       return buildSignatureDecorations(tr.state);
     }
     return decorations;
   },
   provide: (f) => EditorView.decorations.from(f),
 });
+
+export const handleSignatureFenceEnter: StateCommand = ({ state, dispatch }) => {
+  const main = state.selection.main;
+  if (state.selection.ranges.length !== 1 || !main.empty) return false;
+
+  const line = state.doc.lineAt(main.head);
+  if (main.head !== line.to) return false;
+
+  const openMatch = line.text.match(/^(\s*)(`{3,}|~{3,})\s*([a-zA-ZÀ-ÿ_-]+)\s*$/);
+  if (!openMatch || !isSignatureBlockLang(openMatch[3])) return false;
+
+  const indent = openMatch[1];
+  const fence = openMatch[2];
+
+  const tree =
+    ensureSyntaxTree(state, Math.min(state.doc.length, line.to + 4096), 25) ??
+    syntaxTree(state);
+  let cur: ReturnType<typeof tree.resolveInner> | null = tree.resolveInner(line.from, 1);
+  while (cur && cur.name !== 'FencedCode') {
+    cur = cur.parent;
+  }
+  if (cur && cur.name === 'FencedCode') {
+    if (cur.getChildren('CodeMark').length >= 2) {
+      return false;
+    }
+    let ancestor = cur.parent;
+    while (ancestor) {
+      if (ancestor.name === 'FencedCode') return false;
+      ancestor = ancestor.parent;
+    }
+  }
+
+  const line1 = `\n${indent}nome: `;
+  const line2 = `\n${indent}cargo: `;
+  const closeLine = `\n${indent}${fence}`;
+  const insert = `${line1}${line2}${closeLine}`;
+  const cursorAfterNome = main.head + line1.length;
+
+  dispatch(
+    state.update(
+      {
+        changes: { from: main.head, to: main.head, insert },
+        selection: EditorSelection.cursor(cursorAfterNome),
+      },
+      { scrollIntoView: true, userEvent: 'input' }
+    )
+  );
+  return true;
+};
 
 let activeInsertSigOverlay: HTMLElement | null = null;
 let activeInsertSigLayer: ActiveLayer | null = null;

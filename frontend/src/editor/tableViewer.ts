@@ -1,4 +1,4 @@
-import { ActiveLayer, pushLayer } from '../keyboard';
+import { ActiveLayer, formatShortcutLabel, pushLayer } from '../keyboard';
 import { SetClipboardText } from '../../wailsjs/go/main/App';
 import { exportTableImage } from '../export/canvasTable';
 import { openImageExportMenu } from '../export/exportUtils';
@@ -517,7 +517,9 @@ export function openTableViewerModal(opts: TableViewerModalOptions): void {
 
   const hintSpan = document.createElement('span');
   hintSpan.className = 'gecko-diagram-modal-hint';
-  hintSpan.textContent = 'Arraste a borda das colunas para redimensionar · Ctrl+Scroll para zoom · Esc fecha';
+  hintSpan.textContent = formatShortcutLabel(
+    'Arraste a borda das colunas para redimensionar · Ctrl+Scroll para zoom · Esc fecha'
+  );
   titleGroup.appendChild(hintSpan);
 
   const controls = document.createElement('div');

@@ -6,6 +6,7 @@ import {
 } from '@codemirror/commands';
 import { selectNextOccurrence } from '@codemirror/search';
 import { pastePlainTextCommand } from './clipboardMarkdown';
+import { handleSignatureFenceEnter } from './signatureBlock';
 
 /**
  * Toggles symmetrical inline Markdown markers (e.g., **, *, `, ~~) across all active cursors/selections.
@@ -485,6 +486,9 @@ export const handleBlockquoteEnter: StateCommand = ({ state, dispatch }) => {
   return false;
 };
 
+const handleEditorEnter: StateCommand = (target) =>
+  handleSignatureFenceEnter(target) || handleBlockquoteEnter(target);
+
 export const toggleBoldCommand = toggleInlineMarker('**');
 export const toggleItalicCommand = toggleInlineMarker('*');
 export const toggleUnderlineCommand = toggleAsymmetricMarker('<u>', '</u>');
@@ -520,6 +524,6 @@ export const geckoShortcutsKeymap: readonly KeyBinding[] = [
   { key: 'Mod-Shift-.', run: toggleBlockquoteCommand, preventDefault: true },
   { key: 'Alt-ArrowUp', run: moveLineUp, preventDefault: true },
   { key: 'Alt-ArrowDown', run: moveLineDown, preventDefault: true },
-  { key: 'Enter', run: handleBlockquoteEnter },
+  { key: 'Enter', run: handleEditorEnter },
   { key: 'Tab', run: handleEditorTab, shift: handleEditorShiftTab, preventDefault: true },
 ];

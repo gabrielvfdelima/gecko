@@ -5,7 +5,7 @@ import {
   Range,
   StateField,
 } from '@codemirror/state';
-import { syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { isolateHistory } from '@codemirror/commands';
 import {
   Decoration,
@@ -837,7 +837,7 @@ function buildTableDecorations(state: EditorState): DecorationSet {
   }
 
   const decorations: Range<Decoration>[] = [];
-  const tree = syntaxTree(state);
+  const tree = ensureSyntaxTree(state, state.doc.length, 40) ?? syntaxTree(state);
   const totalDocLines = state.doc.lines;
 
   tree.iterate({
@@ -903,7 +903,11 @@ export const markdownTableField = StateField.define<DecorationSet>({
     return buildTableDecorations(state);
   },
   update(decorations, tr) {
-    if (tr.docChanged || tr.selection) {
+    if (
+      tr.docChanged ||
+      tr.selection ||
+      syntaxTree(tr.state) !== syntaxTree(tr.startState)
+    ) {
       return buildTableDecorations(tr.state);
     }
     return decorations;

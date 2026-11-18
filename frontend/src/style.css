@@ -128,6 +128,26 @@ button svg {
   border: none;
 }
 
+.platform-macos .workbench {
+  border: none;
+}
+
+.platform-macos .window-controls {
+  display: none;
+}
+
+.platform-macos .sidebar-header {
+  padding-left: 74px;
+}
+
+.platform-macos .workbench.sidebar-collapsed .tabbar-header {
+  padding-left: 74px;
+}
+
+.platform-macos .workbench.zen-mode .cm-content {
+  padding-top: 44px;
+}
+
 .workbench.sidebar-collapsed {
   grid-template-columns: 0px 1fr;
 }
@@ -3221,4 +3241,147 @@ button.shortcut-row.action-row:focus-visible kbd {
   padding: 7px 10px;
   line-height: 1.45;
   resize: vertical;
+}
+
+/* ================================
+   Markdown Image Viewer Cards
+   ================================ */
+.cm-md-image-card {
+  border-left-color: var(--accent-primary);
+}
+
+.cm-md-image-caption {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+.cm-md-image-dims {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  padding: 0 6px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.cm-md-image-viewport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background-color: var(--bg-editor);
+  min-height: 64px;
+}
+
+.cm-md-image-preview {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-workbench);
+  cursor: zoom-in;
+  user-select: none;
+}
+
+.cm-md-image-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 20px;
+  width: 100%;
+  text-align: center;
+  border: 1px dashed var(--border-subtle);
+  background-color: var(--bg-workbench);
+}
+
+.cm-md-image-error-title {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.cm-md-image-error-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  max-width: 100%;
+  user-select: text;
+}
+
+/* Inline image thumbnail inside mixed paragraphs */
+.cm-md-inline-image-wrap {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin: 1px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0px;
+  background-color: var(--bg-workbench);
+  cursor: zoom-in;
+  line-height: 0;
+  overflow: hidden;
+  transition: border-color 120ms ease;
+}
+
+.cm-md-inline-image-wrap:hover {
+  border-color: var(--accent-primary);
+}
+
+.cm-md-inline-image {
+  display: block;
+  max-height: 36px;
+  max-width: 160px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.cm-md-inline-image-wrap.is-broken {
+  padding: 2px 6px;
+  line-height: 1.3;
+  border-style: dashed;
+}
+
+.cm-md-inline-image-fallback {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Fullscreen Image Viewer Modal */
+.gecko-image-modal-stage {
+  align-items: center;
+  justify-content: center;
+}
+
+.gecko-image-modal-img {
+  display: block;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-workbench);
+  user-select: none;
+  image-rendering: auto;
+}
+
+.gecko-image-modal-error {
+  max-width: 480px;
+}
+
+@media (max-width: 720px) {
+  .cm-md-image-dims,
+  .cm-md-image-caption {
+    display: none;
+  }
 }

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,8 +20,21 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const maxFileSizeBytes int64 = 20 * 1024 * 1024 // 20 MB
+const maxFileSizeBytes int64 = 20 * 1024 * 1024     // 20 MB
 const maxBinaryExportBytes int64 = 64 * 1024 * 1024 // 64 MB for exported PDF/images
+const maxImageServeBytes int64 = 32 * 1024 * 1024   // 32 MB for local image previews
+
+var supportedImageMimeTypes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".svg":  "image/svg+xml",
+	".bmp":  "image/bmp",
+	".ico":  "image/x-icon",
+	".avif": "image/avif",
+}
 
 var ignoredDirectories = map[string]bool{
 	".git":         true,
@@ -80,6 +95,8 @@ type App struct {
 	watcher            *fsnotify.Watcher
 	watcherStop        chan struct{}
 	watchedRoots       map[string]struct{}
+	imageDirsMu        sync.Mutex
+	allowedImageDirs   map[string]struct{}
 	debounceMu         sync.Mutex
 	debounceTimer      map[string]*time.Timer
 	closeMu            sync.Mutex
@@ -91,8 +108,9 @@ type App struct {
 // NewApp creates a new App application struct.
 func NewApp() *App {
 	return &App{
-		watchedRoots:  make(map[string]struct{}),
-		debounceTimer: make(map[string]*time.Timer),
+		watchedRoots:     make(map[string]struct{}),
+		allowedImageDirs: make(map[string]struct{}),
+		debounceTimer:    make(map[string]*time.Timer),
 	}
 }
 
@@ -756,6 +774,8 @@ func (a *App) ReadFile(filePath string) (*FileDocument, error) {
 		return nil, err
 	}
 
+	a.allowImageDir(filepath.Dir(cleanPath))
+
 	lineEnding := detectLineEnding(rawBytes)
 	normalized := bytes.ReplaceAll(rawBytes, []byte("\r\n"), []byte("\n"))
 
@@ -800,6 +820,8 @@ func (a *App) SaveFile(filePath string, content string, lineEnding string) (int6
 	if err := os.WriteFile(cleanPath, data, 0644); err != nil {
 		return 0, err
 	}
+
+	a.allowImageDir(filepath.Dir(cleanPath))
 
 	return int64(len(data)), nil
 }
@@ -1082,4 +1104,176 @@ func (a *App) scheduleDebouncedEvent(filePath string, op string) {
 			})
 		}
 	})
+}
+
+func canonicalizePathForCheck(p string) string {
+	clean := filepath.Clean(strings.TrimSpace(p))
+	if clean == "" || clean == "." {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return clean
+}
+
+func isPathWithinBase(baseDir, targetPath string) bool {
+	cleanBase := canonicalizePathForCheck(baseDir)
+	cleanTarget := canonicalizePathForCheck(targetPath)
+	if cleanBase == "" || cleanTarget == "" {
+		return false
+	}
+	rel, err := filepath.Rel(cleanBase, cleanTarget)
+	if err != nil {
+		return false
+	}
+	return rel != "" && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func (a *App) allowImageDir(dirPath string) {
+	canonicalDir := canonicalizePathForCheck(dirPath)
+	if canonicalDir == "" {
+		return
+	}
+	a.imageDirsMu.Lock()
+	if a.allowedImageDirs == nil {
+		a.allowedImageDirs = make(map[string]struct{})
+	}
+	a.allowedImageDirs[canonicalDir] = struct{}{}
+	a.imageDirsMu.Unlock()
+}
+
+func (a *App) isAuthorizedImagePath(targetPath string) bool {
+	a.watcherMu.Lock()
+	roots := make([]string, 0, len(a.watchedRoots))
+	for root := range a.watchedRoots {
+		roots = append(roots, root)
+	}
+	a.watcherMu.Unlock()
+
+	for _, root := range roots {
+		if isPathWithinBase(root, targetPath) {
+			return true
+		}
+	}
+
+	a.imageDirsMu.Lock()
+	dirs := make([]string, 0, len(a.allowedImageDirs))
+	for dir := range a.allowedImageDirs {
+		dirs = append(dirs, dir)
+	}
+	a.imageDirsMu.Unlock()
+
+	for _, dir := range dirs {
+		if isPathWithinBase(dir, targetPath) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func resolveCandidateImagePath(rawPath, baseDir string) string {
+	trimmed := strings.TrimSpace(rawPath)
+	if strings.HasPrefix(strings.ToLower(trimmed), "file://") {
+		if parsed, err := url.Parse(trimmed); err == nil && parsed.Path != "" {
+			trimmed = parsed.Path
+		}
+	}
+	if trimmed == "" {
+		return ""
+	}
+	if strings.Contains(trimmed, "%") {
+		if unescaped, err := url.PathUnescape(trimmed); err == nil && unescaped != "" {
+			// Prefer exact match on disk first; fall back to unescaped path if exact doesn't exist
+			exact := buildJoinedImagePath(trimmed, baseDir)
+			if exact != "" {
+				if _, statErr := os.Stat(exact); statErr == nil {
+					return exact
+				}
+			}
+			trimmed = unescaped
+		}
+	}
+	return buildJoinedImagePath(trimmed, baseDir)
+}
+
+func buildJoinedImagePath(trimmedPath, baseDir string) string {
+	nativePath := filepath.FromSlash(trimmedPath)
+	if filepath.IsAbs(nativePath) {
+		return filepath.Clean(nativePath)
+	}
+	cleanBase := strings.TrimSpace(baseDir)
+	if cleanBase == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(filepath.Clean(cleanBase), nativePath))
+}
+
+func (a *App) resolveAuthorizedImagePath(rawPath, baseDir string) (string, string, int, error) {
+	candidate := resolveCandidateImagePath(rawPath, baseDir)
+	if candidate == "" {
+		return "", "", http.StatusBadRequest, errors.New("caminho de imagem inválido")
+	}
+
+	canonicalTarget := canonicalizePathForCheck(candidate)
+	if !a.isAuthorizedImagePath(canonicalTarget) {
+		return "", "", http.StatusForbidden, errors.New("acesso à imagem fora dos diretórios autorizados")
+	}
+
+	ext := strings.ToLower(filepath.Ext(canonicalTarget))
+	mimeType, ok := supportedImageMimeTypes[ext]
+	if !ok {
+		return "", "", http.StatusUnsupportedMediaType, errors.New("formato de imagem não suportado")
+	}
+
+	info, err := os.Stat(canonicalTarget)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", "", http.StatusNotFound, errors.New("imagem não encontrada")
+		}
+		return "", "", http.StatusInternalServerError, err
+	}
+	if info.IsDir() {
+		return "", "", http.StatusNotFound, errors.New("caminho aponta para um diretório")
+	}
+	if info.Size() > maxImageServeBytes {
+		return "", "", http.StatusRequestEntityTooLarge, errors.New("imagem excede o limite de segurança de 32 MB")
+	}
+
+	return canonicalTarget, mimeType, http.StatusOK, nil
+}
+
+func (a *App) serveLocalImageHTTP(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	rawPath := query.Get("path")
+	baseDir := query.Get("baseDir")
+
+	resolvedPath, mimeType, statusCode, err := a.resolveAuthorizedImagePath(rawPath, baseDir)
+	if err != nil {
+		http.Error(w, err.Error(), statusCode)
+		return
+	}
+
+	file, err := os.Open(resolvedPath)
+	if err != nil {
+		http.Error(w, "falha ao abrir imagem", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, "falha ao ler metadados da imagem", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	if mimeType == "image/svg+xml" {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	}
+
+	http.ServeContent(w, r, filepath.Base(resolvedPath), info.ModTime(), file)
 }

@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
@@ -61,13 +64,24 @@ func resolveBootSettingsJSON(app *App) []byte {
 func main() {
 	app := NewApp()
 
+	var appMenu *menu.Menu
+	if runtime.GOOS == "darwin" {
+		// macOS WKWebView requires an application Edit menu for native Cmd+C/V/X/A/Z in inputs.
+		appMenu = menu.NewMenuFromItems(
+			menu.AppMenu(),
+			menu.EditMenu(),
+			menu.WindowMenu(),
+		)
+	}
+
 	err := wails.Run(&options.App{
 		Title:     "Gecko",
 		Width:     1280,
 		Height:    820,
 		MinWidth:  720,
 		MinHeight: 480,
-		Frameless: true,
+		Frameless: runtime.GOOS != "darwin",
+		Menu:      appMenu,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 			Middleware: func(next http.Handler) http.Handler {
@@ -104,6 +118,11 @@ func main() {
 						_, _ = w.Write(bodyBytes)
 						return
 					}
+					if (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+						r.URL.Path == "/__gecko_local_image" {
+						app.serveLocalImageHTTP(w, r)
+						return
+					}
 					next.ServeHTTP(w, r)
 				})
 			},
@@ -117,6 +136,18 @@ func main() {
 		},
 		Linux: &linux.Options{
 			Icon: appIcon,
+		},
+		Mac: &mac.Options{
+			TitleBar:                     mac.TitleBarHiddenInset(),
+			Appearance:                   mac.NSAppearanceNameDarkAqua,
+			WebviewIsTransparent:         false,
+			WindowIsTranslucent:          false,
+			DisableEscapeExitsFullscreen: true,
+			About: &mac.AboutInfo{
+				Title:   "Gecko",
+				Message: "Editor de texto e Markdown para desktop.",
+				Icon:    appIcon,
+			},
 		},
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,

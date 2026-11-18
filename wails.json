@@ -9,5 +9,12 @@
   "author": {
     "name": "Gecko",
     "email": "dev@gecko.local"
+  },
+  "info": {
+    "companyName": "Gecko",
+    "productName": "Gecko",
+    "productVersion": "1.4.0",
+    "copyright": "Copyright © 2026 Gecko",
+    "comments": "Editor de texto e Markdown para desktop construído com Go (Wails v2) e TypeScript (CodeMirror 6)."
   }
 }

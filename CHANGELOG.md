@@ -2,6 +2,17 @@
 
 Todas as mudanças notáveis do **Gecko** são documentadas neste arquivo.
 
+## [v1.4.0] - 2026-11-18
+
+### Adicionado
+- **Suporte oficial ao macOS (Apple Silicon e Intel):**
+  - Configuração nativa de janela no `main.go` (`mac.TitleBarHiddenInset()`, `NSAppearanceNameDarkAqua`, `DisableEscapeExitsFullscreen` e menu nativo com `EditMenu` para `⌘C`/`⌘V`/`⌘X`/`⌘A`/`⌘Z` e `⌘Q`).
+  - Leitura nativa de timestamps de criação/modificação de arquivos no macOS (`filetime_darwin.go`).
+  - Adaptação da interface para os controles de janela nativos do macOS (espaçamento para os botões no canto superior esquerdo e ocultação dos controles customizados) e formatação automática de atalhos com `⌘`, `⌥` e `⌫`.
+  - Job `build-macos` no workflow de release gerando pacote universal (`gecko-macos-universal.dmg` e `gecko-macos-universal.zip`) e tutorial de instalação no [README.md](README.md).
+- **Visualização de imagens integrada:**
+  - Exibição inline de imagens Markdown e tags `<img>` no editor com modal de inspeção (zoom/pan) e incorporação na exportação para PDF.
+
 ## [v1.3.0] - 2026-11-17
 
 ### Adicionado

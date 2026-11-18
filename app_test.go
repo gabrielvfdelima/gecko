@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -291,5 +294,118 @@ func TestClipboardHelpers(t *testing.T) {
 	}
 	if err := app.SetClipboardText("test"); err == nil {
 		t.Errorf("expected error when ctx is nil, got nil")
+	}
+}
+
+func TestLocalImageResolutionAndSecurity(t *testing.T) {
+	wsRoot := t.TempDir()
+	standaloneDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	app := NewApp()
+	defer app.RemoveWorkspaceRoot(wsRoot)
+
+	// Prepare workspace tree and images
+	docsSub := filepath.Join(wsRoot, "docs", "sub")
+	if err := os.MkdirAll(docsSub, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	svgPayload := `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>`
+	svgPath := filepath.Join(wsRoot, "docs", "logo.svg")
+	if err := os.WriteFile(svgPath, []byte(svgPayload), 0644); err != nil {
+		t.Fatalf("write svg failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wsRoot, "README.md"), []byte("# Hi"), 0644); err != nil {
+		t.Fatalf("write README failed: %v", err)
+	}
+	if _, err := app.ReadWorkspaceTree(wsRoot); err != nil {
+		t.Fatalf("ReadWorkspaceTree failed: %v", err)
+	}
+
+	// Prepare standalone file + images + non-image
+	mdPath := filepath.Join(standaloneDir, "note.md")
+	if err := os.WriteFile(mdPath, []byte("# Note"), 0644); err != nil {
+		t.Fatalf("write note.md failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(standaloneDir, "my pic.png"), []byte("PNGDATA"), 0644); err != nil {
+		t.Fatalf("write png failed: %v", err)
+	}
+	if _, err := app.ReadFile(mdPath); err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	// Prepare outside image
+	outsideImg := filepath.Join(outsideDir, "secret.png")
+	if err := os.WriteFile(outsideImg, []byte("SECRET"), 0644); err != nil {
+		t.Fatalf("write outside png failed: %v", err)
+	}
+
+	// 1. Valid SVG inside workspace resolved via ../ from docs/sub
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/__gecko_local_image?path="+url.QueryEscape("../logo.svg")+"&baseDir="+url.QueryEscape(docsSub),
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	app.serveLocalImageHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for workspace SVG, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "image/svg+xml") {
+		t.Errorf("expected image/svg+xml Content-Type, got %q", ct)
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'none'") {
+		t.Errorf("expected restrictive CSP on SVG, got %q", csp)
+	}
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options nosniff")
+	}
+
+	// 2. Valid standalone file dir + URL-encoded filename space (%20)
+	reqSpace := httptest.NewRequest(
+		http.MethodGet,
+		"/__gecko_local_image?path="+url.QueryEscape("my%20pic.png")+"&baseDir="+url.QueryEscape(standaloneDir),
+		nil,
+	)
+	recSpace := httptest.NewRecorder()
+	app.serveLocalImageHTTP(recSpace, reqSpace)
+	if recSpace.Code != http.StatusOK || recSpace.Body.String() != "PNGDATA" {
+		t.Fatalf("expected 200 with PNGDATA for my%%20pic.png, got %d (%q)", recSpace.Code, recSpace.Body.String())
+	}
+
+	// 3. Outside directory / traversal must be blocked (403 Forbidden)
+	reqOutside := httptest.NewRequest(
+		http.MethodGet,
+		"/__gecko_local_image?path="+url.QueryEscape(outsideImg)+"&baseDir="+url.QueryEscape(wsRoot),
+		nil,
+	)
+	recOutside := httptest.NewRecorder()
+	app.serveLocalImageHTTP(recOutside, reqOutside)
+	if recOutside.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for outside image, got %d", recOutside.Code)
+	}
+
+	// 4. Non-image extension inside allowed directory must return 415
+	reqMarkdown := httptest.NewRequest(
+		http.MethodGet,
+		"/__gecko_local_image?path="+url.QueryEscape("README.md")+"&baseDir="+url.QueryEscape(wsRoot),
+		nil,
+	)
+	recMarkdown := httptest.NewRecorder()
+	app.serveLocalImageHTTP(recMarkdown, reqMarkdown)
+	if recMarkdown.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("expected 415 for non-image file, got %d", recMarkdown.Code)
+	}
+
+	// 5. Missing image inside allowed directory must return 404
+	reqMissing := httptest.NewRequest(
+		http.MethodGet,
+		"/__gecko_local_image?path="+url.QueryEscape("missing.png")+"&baseDir="+url.QueryEscape(wsRoot),
+		nil,
+	)
+	recMissing := httptest.NewRecorder()
+	app.serveLocalImageHTTP(recMissing, reqMissing)
+	if recMissing.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing image, got %d", recMissing.Code)
 	}
 }

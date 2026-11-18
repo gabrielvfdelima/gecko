@@ -6,6 +6,8 @@ export {
     isTextInput,
 } from "./focusUtils";
 export {
+    IS_MACOS,
+    formatShortcutLabel,
     matchesKeyEvent,
     parseShortcut,
     shouldRunBinding,

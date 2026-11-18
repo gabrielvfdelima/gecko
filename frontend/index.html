@@ -18,6 +18,13 @@
             (function () {
                 try {
                     var root = document.documentElement;
+                    var isMacOS = /Mac|iPhone|iPad|iPod/i.test(
+                        navigator.platform || navigator.userAgent || "",
+                    );
+                    if (isMacOS) {
+                        root.classList.add("platform-macos");
+                    }
+                    var minSidebarWidth = isMacOS ? 220 : 170;
                     var boot = "__GECKO_BOOT_SETTINGS_PLACEHOLDER__";
                     if (boot && typeof boot === "object") {
                         window.__GECKO_BOOT_SETTINGS__ = boot;
@@ -27,11 +34,20 @@
                     if (
                         boot &&
                         typeof boot.sidebarWidth === "number" &&
-                        boot.sidebarWidth >= 170
+                        boot.sidebarWidth >= minSidebarWidth
                     ) {
                         root.style.setProperty(
                             "--sidebar-width",
                             Math.round(boot.sidebarWidth) + "px",
+                        );
+                    } else if (
+                        isMacOS &&
+                        boot &&
+                        typeof boot.sidebarWidth === "number"
+                    ) {
+                        root.style.setProperty(
+                            "--sidebar-width",
+                            minSidebarWidth + "px",
                         );
                     }
                     var storedHex = null;

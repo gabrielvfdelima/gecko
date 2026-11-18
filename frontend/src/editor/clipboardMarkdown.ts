@@ -2,6 +2,7 @@ import { EditorSelection, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { ClipboardGetText } from '../../wailsjs/runtime/runtime';
 import { GetClipboardText } from '../../wailsjs/go/main/App';
+import { formatShortcutLabel } from '../keyboard';
 
 /**
  * HTML to Markdown converter tailored for rich text copied from AI chats (ChatGPT, Claude,
@@ -226,7 +227,7 @@ function showPasteFormatPill(
   const revertBtn = document.createElement('button');
   revertBtn.type = 'button';
   revertBtn.className = 'paste-pill-revert-btn';
-  revertBtn.textContent = 'Texto puro (Ctrl+Shift+V)';
+  revertBtn.textContent = formatShortcutLabel('Texto puro (Ctrl+Shift+V)');
 
   // Prevent outside dismiss or focus loss when clicking revert button
   revertBtn.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -455,7 +456,11 @@ export function createSmartPasteExtension(onStatus?: (msg: string) => void) {
 
           showPasteFormatPill(view, from, to, plainText, onStatus);
           if (onStatus) {
-            onStatus('Colado com formatação Markdown (use Ctrl+Shift+V para texto puro)');
+            onStatus(
+              formatShortcutLabel(
+                'Colado com formatação Markdown (use Ctrl+Shift+V para texto puro)'
+              )
+            );
           }
           return true;
         }

@@ -63,7 +63,9 @@ import {
     createListNavigator,
     cycleWorkbenchRegion,
     focusRegion,
+    formatShortcutLabel,
     initKeyboardDispatcher,
+    IS_MACOS,
     KeyBinding,
     ListNavigator,
     pushLayer,
@@ -112,7 +114,7 @@ interface GeckoSettings {
 
 // Sidebar resize limits (px)
 const SIDEBAR_DEFAULT_WIDTH = 260;
-const SIDEBAR_MIN_WIDTH = 170;
+const SIDEBAR_MIN_WIDTH = IS_MACOS ? 220 : 170;
 const SIDEBAR_MAX_WIDTH = 600;
 
 interface OpenTab {
@@ -623,7 +625,8 @@ function buildEditorStateForTab(
     tabPath: string,
     initialContent: string,
 ): EditorState {
-    return createGeckoEditorState(initialContent, {
+    let duringCreate = true;
+    const state = createGeckoEditorState(initialContent, {
         onDocChanged: (newContent) => {
             const tab = openTabs.find((t) => t.path === tabPath);
             if (!tab) return;
@@ -652,7 +655,22 @@ function buildEditorStateForTab(
         onStatusMessage: (msg) => {
             showTemporaryStatus(msg);
         },
+        getDocumentDir: () => {
+            if (
+                !duringCreate &&
+                activeTabPath &&
+                !activeTabPath.startsWith("untitled:")
+            ) {
+                return getDirName(activeTabPath);
+            }
+            if (tabPath && !tabPath.startsWith("untitled:")) {
+                return getDirName(tabPath);
+            }
+            return workspaces[0]?.root || "";
+        },
     });
+    duringCreate = false;
+    return state;
 }
 
 function ensureEditorView(initialState: EditorState): EditorView {
@@ -1389,8 +1407,9 @@ function renderFileTree(): void {
         visibleTreeNodes = [];
         const emptyDiv = document.createElement("div");
         emptyDiv.className = "tree-empty";
-        emptyDiv.textContent =
-            "Nenhum workspace aberto. Clique no ícone de pasta acima ou pressione Ctrl+Alt+N.";
+        emptyDiv.textContent = formatShortcutLabel(
+            "Nenhum workspace aberto. Clique no ícone de pasta acima ou pressione Ctrl+Alt+N.",
+        );
         fileTreeEl.appendChild(emptyDiv);
         if (hadTreeFocus && !inlineTreeState) {
             fileTreeEl.focus({ preventScroll: true });
@@ -4513,15 +4532,15 @@ function openTabContextMenu(
         y,
         [
             {
-                label: "Salvar (Ctrl+S)",
+                label: formatShortcutLabel("Salvar (Ctrl+S)"),
                 action: () => void saveTab(tab.path),
             },
             {
-                label: "Salvar Como... (Ctrl+Shift+S)",
+                label: formatShortcutLabel("Salvar Como... (Ctrl+Shift+S)"),
                 action: () => void openIntegratedSaveFileModal(tab),
             },
             {
-                label: "Exportar para PDF... (Ctrl+Shift+P)",
+                label: formatShortcutLabel("Exportar para PDF... (Ctrl+Shift+P)"),
                 action: () => void openPdfForPath(tab.path),
             },
             {
@@ -4556,7 +4575,7 @@ function openTabContextMenu(
             },
             { separator: true },
             {
-                label: "Fechar Aba (Delete / Ctrl+W)",
+                label: formatShortcutLabel("Fechar Aba (Delete / Ctrl+W)"),
                 action: () => requestCloseTab(tab.path),
             },
             {
@@ -4832,14 +4851,14 @@ function openGeckoBrandMenu(anchorEl: HTMLElement, focusFirstItem = false): void
                 },
             },
             {
-                label: "Configuração de Cores (Ctrl+,)",
+                label: formatShortcutLabel("Configuração de Cores (Ctrl+,)"),
                 action: () => {
                     openPrimaryColorModal();
                 },
             },
             { separator: true },
             {
-                label: "Exportar Documento para PDF... (Ctrl+Shift+P)",
+                label: formatShortcutLabel("Exportar Documento para PDF... (Ctrl+Shift+P)"),
                 action: () => {
                     openPdfForActiveTab();
                 },
@@ -5007,7 +5026,9 @@ const quickOpenNav: ListNavigator = createListNavigator({
 function openQuickOpen(): void {
     if (workspaces.length === 0) {
         showStatusMessage(
-            "Abra um workspace primeiro para buscar arquivos (Ctrl+P).",
+            formatShortcutLabel(
+                "Abra um workspace primeiro para buscar arquivos (Ctrl+P).",
+            ),
         );
         return;
     }
@@ -5842,7 +5863,7 @@ function bindEvents(): void {
         // Cut / Copy (if text is selected)
         if (hasSelection) {
             options.push({
-                label: "Recortar (Ctrl+X)",
+                label: formatShortcutLabel("Recortar (Ctrl+X)"),
                 action: () => {
                     void navigator.clipboard
                         .writeText(selectedText)
@@ -5857,7 +5878,7 @@ function bindEvents(): void {
                 },
             });
             options.push({
-                label: "Copiar (Ctrl+C)",
+                label: formatShortcutLabel("Copiar (Ctrl+C)"),
                 action: () => {
                     void navigator.clipboard
                         .writeText(selectedText)
@@ -5872,7 +5893,7 @@ function bindEvents(): void {
 
         // Paste formatted vs plain text
         options.push({
-            label: "Colar com Formatação (Ctrl+V)",
+            label: formatShortcutLabel("Colar com Formatação (Ctrl+V)"),
             action: () => {
                 void navigator.clipboard
                     .read()
@@ -5912,7 +5933,7 @@ function bindEvents(): void {
         });
 
         options.push({
-            label: "Colar Texto Puro (Ctrl+Shift+V)",
+            label: formatShortcutLabel("Colar Texto Puro (Ctrl+Shift+V)"),
             action: () => {
                 if (editorView) {
                     void pastePlainTextIntoView(
@@ -5927,25 +5948,25 @@ function bindEvents(): void {
         if (hasSelection) {
             options.push({ separator: true });
             options.push({
-                label: "Transformar em Lista com Marcadores (Ctrl+-)",
+                label: formatShortcutLabel("Transformar em Lista com Marcadores (Ctrl+-)"),
                 action: () => {
                     if (editorView) toggleBulletListCommand(editorView);
                 },
             });
             options.push({
-                label: "Transformar em Lista Numerada (Ctrl+.)",
+                label: formatShortcutLabel("Transformar em Lista Numerada (Ctrl+.)"),
                 action: () => {
                     if (editorView) toggleNumberedListCommand(editorView);
                 },
             });
             options.push({
-                label: "Transformar em Lista de Tarefas (Ctrl+;)",
+                label: formatShortcutLabel("Transformar em Lista de Tarefas (Ctrl+;)"),
                 action: () => {
                     if (editorView) toggleTaskListCommand(editorView);
                 },
             });
             options.push({
-                label: "Transformar em Citação (Ctrl+Shift+.)",
+                label: formatShortcutLabel("Transformar em Citação (Ctrl+Shift+.)"),
                 action: () => {
                     if (editorView) toggleBlockquoteCommand(editorView);
                 },
@@ -5954,13 +5975,13 @@ function bindEvents(): void {
 
         options.push({ separator: true });
         options.push({
-            label: "Inserir Bloco de Assinatura... (Ctrl+Alt+A)",
+            label: formatShortcutLabel("Inserir Bloco de Assinatura... (Ctrl+Alt+A)"),
             action: () => {
                 openInsertSignatureForActiveEditor();
             },
         });
         options.push({
-            label: "Exportar Documento para PDF... (Ctrl+Shift+P)",
+            label: formatShortcutLabel("Exportar Documento para PDF... (Ctrl+Shift+P)"),
             action: () => {
                 openPdfForActiveTab();
             },
@@ -6686,7 +6707,36 @@ function setupRuntimeListener(): void {
     }
 }
 
+function applyPlatformShortcutHints(): void {
+    if (!IS_MACOS) return;
+
+    const titledEls = document.querySelectorAll<HTMLElement>(
+        "#btn-toggle-sidebar, #btn-export-pdf, #empty-btn-all-shortcuts",
+    );
+    titledEls.forEach((el) => {
+        const title = el.getAttribute("title");
+        if (title) {
+            el.setAttribute("title", formatShortcutLabel(title));
+        }
+    });
+
+    if (emptyBtnNewFile.textContent) {
+        emptyBtnNewFile.textContent = formatShortcutLabel(
+            emptyBtnNewFile.textContent,
+        );
+    }
+
+    document
+        .querySelectorAll<HTMLElement>("#empty-state .shortcut-grid kbd")
+        .forEach((kbd) => {
+            if (kbd.textContent) {
+                kbd.textContent = formatShortcutLabel(kbd.textContent);
+            }
+        });
+}
+
 async function initGecko(): Promise<void> {
+    applyPlatformShortcutHints();
     registerExportHost({
         getDefaultDir: () => {
             if (activeTabPath && !activeTabPath.startsWith("untitled:")) {

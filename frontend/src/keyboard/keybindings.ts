@@ -5,6 +5,21 @@
 
 import { isTextInput } from "./focusUtils";
 
+export const IS_MACOS =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
+
+export function formatShortcutLabel(label: string): string {
+    if (!IS_MACOS) return label;
+    if (/\btab\b/i.test(label)) {
+        return label;
+    }
+    return label
+        .replace(/\bCtrl\s*\+\s*/g, (m) => (m.includes(" ") ? "⌘ + " : "⌘+"))
+        .replace(/\bAlt\s*\+\s*/g, (m) => (m.includes(" ") ? "⌥ + " : "⌥+"))
+        .replace(/\bDelete\b/g, "⌫");
+}
+
 export interface KeyBinding {
     /** Expressão do atalho: ex. "Mod-s", "Mod-Shift-e", "F6", "Shift-F10", "ArrowDown" */
     key: string;
